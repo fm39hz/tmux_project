@@ -44,7 +44,8 @@ type result struct {
 }
 
 type model struct {
-	all      []item
+	base     []item // active + optional create + presets (no zoxide)
+	zox      []item // full zoxide list (score order)
 	view     []item
 	cursor   int
 	query    string
@@ -56,9 +57,13 @@ type model struct {
 	width    int
 	height   int
 	maxShow  int
+	help     bool   // ? toggles full key help
+	tmpl     string // sticky template name (default|…)
 	editPath string // temp file while $EDITOR open
 	editOld  string // preset name before edit (rename detect)
 }
+
+const zoxCap = 40 // unfiltered list shows top-N zoxide only
 
 var (
 	stylePrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
@@ -70,57 +75,52 @@ var (
 )
 
 func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
-	create := item{
-		kind:  kindCreate,
-		title: fmt.Sprintf("[Create] %s", createName),
-		desc:  createCwd,
-		name:  createName,
-		path:  createCwd,
+	create := item{}
+	if shouldOfferCreate(createCwd) {
+		create = item{
+			kind:  kindCreate,
+			title: fmt.Sprintf("[Create] %s", createName),
+			desc:  createCwd,
+			name:  createName,
+			path:  createCwd,
+		}
 	}
-	// skip zoxide here — Init loads it async so TUI paints immediately
-	all := collectItems(ctl, store, create, false)
 	m := model{
-		all:     all,
+		base:    collectBase(ctl, store, create),
 		ctl:     ctl,
 		store:   store,
 		create:  create,
 		maxShow: 12,
+		tmpl:    readActiveTemplateName(),
 	}
 	m.refilter()
 	return m
 }
 
-func collectItems(ctl *TmuxCtl, store *Store, create item, withZoxide bool) []item {
+// shouldOfferCreate: hide noise at $HOME — only offer when cwd is a real project tree.
+func shouldOfferCreate(cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err == nil && (cwd == home || cwd == home+string(os.PathSeparator)) {
+		return false
+	}
+	// only if project markers found (not just walked to /)
+	root := findProjectRoot(cwd)
+	if home != "" && (root == home || root == "/") {
+		return false
+	}
+	return root != ""
+}
+
+// collectBase: Active → Create → Presets(last_used). No zoxide.
+func collectBase(ctl *TmuxCtl, store *Store, create item) []item {
 	seen := map[string]bool{}
 	var items []item
 
-	items = append(items, create)
-	seen[create.name] = true
-
-	// live + sqlite in parallel — both cheap, still shaves a bit
-	type liveRes struct {
-		ss  []LiveSession
-		err error
-	}
-	type nameRes struct {
-		ns  []string
-		err error
-	}
-	liveCh := make(chan liveRes, 1)
-	nameCh := make(chan nameRes, 1)
-	go func() {
-		ss, err := ctl.ListLive()
-		liveCh <- liveRes{ss, err}
-	}()
-	go func() {
-		ns, err := store.ListNames()
-		nameCh <- nameRes{ns, err}
-	}()
-	lr := <-liveCh
-	nr := <-nameCh
-
-	if lr.err == nil {
-		for _, s := range lr.ss {
+	if live, err := ctl.ListLive(); err == nil {
+		for _, s := range live {
 			seen[s.Name] = true
 			items = append(items, item{
 				kind:    kindActive,
@@ -131,8 +131,15 @@ func collectItems(ctl *TmuxCtl, store *Store, create item, withZoxide bool) []it
 			})
 		}
 	}
-	if nr.err == nil {
-		for _, n := range nr.ns {
+
+	// create after actives — only if name not already live/preset-bound
+	if create.name != "" && !seen[create.name] {
+		seen[create.name] = true
+		items = append(items, create)
+	}
+
+	if names, err := store.ListNames(); err == nil {
+		for _, n := range names {
 			if seen[n] {
 				continue
 			}
@@ -145,24 +152,35 @@ func collectItems(ctl *TmuxCtl, store *Store, create item, withZoxide bool) []it
 			})
 		}
 	}
-
-	if withZoxide {
-		for _, p := range zoxideList() {
-			base := sessionName(p)
-			if seen[base] {
-				continue
-			}
-			seen[base] = true
-			items = append(items, item{
-				kind:  kindZoxide,
-				title: fmt.Sprintf("[Zoxide] %s", base),
-				desc:  p,
-				name:  base,
-				path:  p,
-			})
-		}
-	}
 	return items
+}
+
+func seenNames(items []item) map[string]bool {
+	seen := map[string]bool{}
+	for _, it := range items {
+		seen[it.name] = true
+	}
+	return seen
+}
+
+// zoxideItems: skip names already in base (active/preset/create).
+func zoxideItems(paths []string, seen map[string]bool) []item {
+	var out []item
+	for _, p := range paths {
+		base := sessionName(p)
+		if base == "" || seen[base] {
+			continue
+		}
+		seen[base] = true
+		out = append(out, item{
+			kind:  kindZoxide,
+			title: fmt.Sprintf("[Zoxide] %s", base),
+			desc:  p,
+			name:  base,
+			path:  p,
+		})
+	}
+	return out
 }
 
 type zoxideMsg []string
@@ -172,33 +190,33 @@ func loadZoxideCmd() tea.Msg {
 }
 
 func (m *model) mergeZoxide(paths []string) {
-	seen := map[string]bool{}
-	for _, it := range m.all {
-		seen[it.name] = true
+	m.zox = zoxideItems(paths, seenNames(m.base))
+}
+
+func (m *model) pool() []item {
+	q := strings.TrimSpace(m.query)
+	out := append([]item(nil), m.base...)
+	if len(m.zox) == 0 {
+		return out
 	}
-	for _, p := range paths {
-		base := sessionName(p)
-		if seen[base] {
-			continue
+	if q == "" {
+		n := zoxCap
+		if n > len(m.zox) {
+			n = len(m.zox)
 		}
-		seen[base] = true
-		m.all = append(m.all, item{
-			kind:  kindZoxide,
-			title: fmt.Sprintf("[Zoxide] %s", base),
-			desc:  p,
-			name:  base,
-			path:  p,
-		})
+		return append(out, m.zox[:n]...)
 	}
+	return append(out, m.zox...)
 }
 
 func (m *model) refilter() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
+	pool := m.pool()
 	if q == "" {
-		m.view = append([]item(nil), m.all...)
+		m.view = pool
 	} else {
 		m.view = m.view[:0]
-		for _, it := range m.all {
+		for _, it := range pool {
 			hay := strings.ToLower(it.title + " " + it.name + " " + it.path + " " + it.desc)
 			if fuzzyMatch(q, hay) {
 				m.view = append(m.view, it)
@@ -211,6 +229,10 @@ func (m *model) refilter() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+}
+
+func (m *model) totalCount() int {
+	return len(m.base) + len(m.zox)
 }
 
 // subsequence match like fzf default (case-insensitive already applied).
@@ -274,6 +296,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc":
 			m.done = result{action: actionQuit}
 			return m, tea.Quit
+
+		case "?":
+			m.help = !m.help
+			return m, nil
+
+		case "ctrl+t": // sticky template from preset; else reset default
+			if len(m.view) > 0 {
+				it := m.view[m.cursor]
+				if it.kind == kindPreset {
+					p, err := m.store.Get(it.name)
+					if err != nil {
+						m.status = err.Error()
+						return m, nil
+					}
+					name, err := setActiveFromPreset(p)
+					if err != nil {
+						m.status = err.Error()
+						return m, nil
+					}
+					m.tmpl = name
+					m.status = "tmpl: " + name + "  (create/zoxide use this)"
+					return m, nil
+				}
+			}
+			if err := resetActiveTemplate(); err != nil {
+				m.status = err.Error()
+			} else {
+				m.tmpl = "default"
+				m.status = "tmpl: default"
+			}
+			return m, nil
 
 		case "enter":
 			if len(m.view) > 0 && m.cursor < len(m.view) {
@@ -403,7 +456,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) reload() {
-	m.all = collectItems(m.ctl, m.store, m.create, true)
+	m.base = collectBase(m.ctl, m.store, m.create)
+	m.zox = zoxideItems(zoxideList(), seenNames(m.base))
 	m.refilter()
 }
 
@@ -504,7 +558,15 @@ func (m model) View() string {
 	b.WriteString(m.query)
 	b.WriteString(styleDim.Render("█"))
 	b.WriteByte('\n')
-	b.WriteString(styleHeader.Render(fmt.Sprintf("  %d/%d  ^n/p · enter · ^x kill · ^f freeze · ^e edit · ^d del · esc", len(m.view), len(m.all))))
+	if m.help {
+		b.WriteString(styleHeader.Render(fmt.Sprintf("  %d/%d  ^n/p · enter · ^t tmpl · ^x kill · ^f freeze · ^e edit · ^d del · esc · ?", len(m.view), m.totalCount())))
+	} else {
+		head := fmt.Sprintf("  %d/%d  enter · esc · ?", len(m.view), m.totalCount())
+		if m.tmpl != "" && m.tmpl != "default" {
+			head = fmt.Sprintf("  %d/%d  tmpl:%s  enter · esc · ?", len(m.view), m.totalCount(), m.tmpl)
+		}
+		b.WriteString(styleHeader.Render(head))
+	}
 	b.WriteByte('\n')
 
 	maxShow := m.maxShow

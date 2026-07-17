@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestFuzzyUTF8(t *testing.T) {
 	if !fuzzyMatch("thư", "thư mục") {
@@ -120,5 +123,64 @@ func TestResolveCwd(t *testing.T) {
 	}
 	if resolveCwd("/a", "/abs") != "/abs" {
 		t.Fatal("abs")
+	}
+}
+
+func TestShouldOfferCreate(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip(err)
+	}
+	if shouldOfferCreate(home) {
+		t.Fatal("home should not offer create")
+	}
+	// this repo is a go module project
+	cwd, _ := os.Getwd()
+	if !shouldOfferCreate(cwd) {
+		t.Fatalf("project cwd should offer create: %s", cwd)
+	}
+}
+
+func TestPresetToTemplate(t *testing.T) {
+	p := &Preset{
+		Name: "fantasia",
+		Cwd:  "/work/Fantasia",
+		Windows: []PresetWindow{
+			{Name: "editor", Cwd: "/work/Fantasia", Panes: []PresetPane{{Cwd: "/work/Fantasia", Cmd: "nvim"}}},
+			{Name: "test", Panes: []PresetPane{{Cwd: "/work/Fantasia/test"}, {Cwd: "/work/Fantasia"}}},
+		},
+	}
+	tmpl := presetToTemplate(p)
+	if tmpl.Name != "fantasia" {
+		t.Fatal(tmpl.Name)
+	}
+	if tmpl.Windows[0].Panes[0].Cwd != "" || tmpl.Windows[0].Panes[0].Cmd != "nvim" {
+		t.Fatalf("editor pane: %+v", tmpl.Windows[0].Panes[0])
+	}
+	if tmpl.Windows[1].Panes[0].Cwd != "test" {
+		t.Fatalf("rel: %q", tmpl.Windows[1].Panes[0].Cwd)
+	}
+	if tmpl.Windows[1].Panes[1].Cwd != "" {
+		t.Fatalf("root pane: %q", tmpl.Windows[1].Panes[1].Cwd)
+	}
+	// bake
+	got := applyTemplate(tmpl, "other", "/proj/other")
+	if got.Windows[0].Panes[0].Cwd != "/proj/other" || got.Windows[0].Panes[0].Cmd != "nvim" {
+		t.Fatalf("bake editor: %+v", got.Windows[0].Panes[0])
+	}
+	if got.Windows[1].Panes[0].Cwd != "/proj/other/test" {
+		t.Fatalf("bake test: %q", got.Windows[1].Panes[0].Cwd)
+	}
+}
+
+func TestRelativizeCwd(t *testing.T) {
+	if relativizeCwd("/a", "/a/b") != "b" {
+		t.Fatal("rel")
+	}
+	if relativizeCwd("/a", "/a") != "" {
+		t.Fatal("root")
+	}
+	if relativizeCwd("/a", "/other") != "" {
+		t.Fatal("outside")
 	}
 }

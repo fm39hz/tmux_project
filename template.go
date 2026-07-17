@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// Default template: used when Create/Zoxide starts a session that has no
-// live session and no saved preset. Zero extra prompts — enter just works.
+// Templates live under $XDG_DATA_HOME/tmux_project/templates/
 //
-// Override: $XDG_DATA_HOME/tmux_project/templates/default.json
-// (created on first use; same JSON shape as presets, cwd fields relative to project root).
+//	default.json   — builtin shape (auto-seeded)
+//	<name>.json    — derived from a preset via ctrl-t
+//	active         — sticky template name (one line); empty/missing = default
+//
+// Create/Zoxide enter: live → named preset → active template @ cwd.
 
 func builtinDefaultTemplate() *Preset {
 	return &Preset{
@@ -22,17 +25,104 @@ func builtinDefaultTemplate() *Preset {
 	}
 }
 
-func templatePath() (string, error) {
+func templatesDir() (string, error) {
 	dir, err := dataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "templates", "default.json"), nil
+	return filepath.Join(dir, "templates"), nil
 }
 
-// loadDefaultTemplate reads templates/default.json, or writes the builtin and returns it.
+func templateFile(name string) (string, error) {
+	dir, err := templatesDir()
+	if err != nil {
+		return "", err
+	}
+	if name == "" {
+		name = "default"
+	}
+	return filepath.Join(dir, name+".json"), nil
+}
+
+func activeNamePath() (string, error) {
+	dir, err := templatesDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "active"), nil
+}
+
+func readActiveTemplateName() string {
+	path, err := activeNamePath()
+	if err != nil {
+		return "default"
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "default"
+	}
+	name := strings.TrimSpace(string(b))
+	if name == "" || !validSessionName(name) && name != "default" {
+		// allow default always; other names must be safe filenames
+		if name != "default" && !validSessionName(name) {
+			return "default"
+		}
+	}
+	if name == "" {
+		return "default"
+	}
+	return name
+}
+
+func writeActiveTemplateName(name string) error {
+	if name == "" {
+		name = "default"
+	}
+	path, err := activeNamePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(name+"\n"), 0o644)
+}
+
+func saveTemplate(p *Preset) error {
+	if p == nil || p.Name == "" {
+		return fmt.Errorf("template needs name")
+	}
+	path, err := templateFile(p.Name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	// formatPreset keeps layout named-only; strip session cwd for template file
+	cp := *p
+	cp.Cwd = ""
+	return os.WriteFile(path, []byte(formatPreset(&cp)), 0o644)
+}
+
+func loadTemplateFile(name string) (*Preset, error) {
+	if name == "" || name == "default" {
+		return loadDefaultTemplate()
+	}
+	path, err := templateFile(name)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsePreset(string(raw))
+}
+
+// loadDefaultTemplate reads templates/default.json, or seeds builtin.
 func loadDefaultTemplate() (*Preset, error) {
-	path, err := templatePath()
+	path, err := templateFile("default")
 	if err != nil {
 		return builtinDefaultTemplate(), nil
 	}
@@ -49,14 +139,96 @@ func loadDefaultTemplate() (*Preset, error) {
 	}
 	p := builtinDefaultTemplate()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return p, nil // still usable in-memory
+		return p, nil
 	}
 	_ = os.WriteFile(path, []byte(formatPreset(p)), 0o644)
 	return p, nil
 }
 
+// loadActiveTemplate resolves sticky name → template shape.
+func loadActiveTemplate() (*Preset, string, error) {
+	name := readActiveTemplateName()
+	p, err := loadTemplateFile(name)
+	if err != nil {
+		// missing file → fall back default, clear sticky
+		_ = writeActiveTemplateName("default")
+		p, err2 := loadDefaultTemplate()
+		return p, "default", err2
+	}
+	return p, name, nil
+}
+
+// relativizeCwd: abs under root → rel; empty/outside → "" (= $ROOT at bake).
+func relativizeCwd(root, cwd string) string {
+	if cwd == "" || root == "" {
+		return ""
+	}
+	if !filepath.IsAbs(cwd) {
+		return filepath.Clean(cwd)
+	}
+	rel, err := filepath.Rel(root, cwd)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return ""
+	}
+	if rel == "." {
+		return ""
+	}
+	return rel
+}
+
+// presetToTemplate drops abs roots; paths become relative to preset.Cwd.
+func presetToTemplate(p *Preset) *Preset {
+	if p == nil {
+		return builtinDefaultTemplate()
+	}
+	root := p.Cwd
+	out := &Preset{Name: p.Name}
+	if out.Name == "" {
+		out.Name = "custom"
+	}
+	for i, w := range p.Windows {
+		pw := PresetWindow{
+			Idx:    i,
+			Name:   w.Name,
+			Cwd:    relativizeCwd(root, w.Cwd),
+			Layout: layoutForStore(w.Layout, len(w.Panes)),
+		}
+		if len(w.Panes) == 0 {
+			pw.Panes = []PresetPane{{}}
+		} else {
+			for j, pn := range w.Panes {
+				pw.Panes = append(pw.Panes, PresetPane{
+					Idx: j,
+					Cwd: relativizeCwd(root, pn.Cwd),
+					Cmd: pn.Cmd,
+				})
+			}
+		}
+		out.Windows = append(out.Windows, pw)
+	}
+	if len(out.Windows) == 0 {
+		return builtinDefaultTemplate()
+	}
+	return out
+}
+
+// setActiveFromPreset writes templates/<name>.json + sticky active.
+func setActiveFromPreset(p *Preset) (string, error) {
+	t := presetToTemplate(p)
+	if err := saveTemplate(t); err != nil {
+		return "", err
+	}
+	if err := writeActiveTemplateName(t.Name); err != nil {
+		return "", err
+	}
+	return t.Name, nil
+}
+
+func resetActiveTemplate() error {
+	return writeActiveTemplateName("default")
+}
+
 // applyTemplate stamps a template onto a project root.
-// Empty/relative pane·window cwd → under root; absolute cwd kept.
 func applyTemplate(tmpl *Preset, name, root string) *Preset {
 	if root == "" {
 		root, _ = os.Getwd()
@@ -103,11 +275,11 @@ func resolveCwd(root, cwd string) string {
 	return filepath.Join(root, cwd)
 }
 
-// connectProject: lowest-friction path for Create / Zoxide.
+// connectProject: Create / Zoxide enter — zero prompts.
 //
-//	session live?  → attach/switch
-//	preset saved?  → bake that layout (specialized)
-//	else           → default template at cwd
+//	live? → attach
+//	preset with same name? → bake that preset
+//	else → active sticky template @ cwd
 func connectProject(ctl *TmuxCtl, store *Store, name, cwd string) error {
 	if ctl.Has(name) {
 		return ctl.Connect(name, "")
@@ -116,7 +288,7 @@ func connectProject(ctl *TmuxCtl, store *Store, name, cwd string) error {
 		_ = store.Touch(name)
 		return ctl.ConnectPreset(p)
 	}
-	tmpl, err := loadDefaultTemplate()
+	tmpl, _, err := loadActiveTemplate()
 	if err != nil {
 		return err
 	}

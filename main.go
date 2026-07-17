@@ -43,11 +43,12 @@ Keys (fzf-style combobox — type to filter anytime):
   ctrl-f        freeze → sqlite
   ctrl-e        edit preset
   ctrl-d        delete preset
+  ctrl-t        sticky template from preset (again: default)
   ctrl-u        clear query
   esc           quit
 
 Store: $XDG_DATA_HOME/tmux_project/state.db
-	Template: .../templates/default.json (Create/Zoxide when no preset)
+	Template: .../templates/{default|name}.json + active sticky (ctrl-t)
 Edit format: JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}`)
 			return
 		}
