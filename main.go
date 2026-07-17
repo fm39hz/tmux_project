@@ -120,6 +120,16 @@ func connectItem(ctl *TmuxCtl, store *Store, it item) error {
 	}
 	if err == nil && store != nil {
 		_ = store.RecordOpen(it.name)
+		// co-occurrence: pairs with other sessions live at connect time
+		if live, e := ctl.ListLive(); e == nil {
+			names := make([]string, 0, len(live))
+			for _, s := range live {
+				if s.Name != it.name {
+					names = append(names, s.Name)
+				}
+			}
+			store.RecordPairsWithLive(it.name, names)
+		}
 	}
 	return err
 }

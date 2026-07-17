@@ -12,10 +12,11 @@ import (
 //	kind    — domain preference within tier (higher = better).
 //	detail  — within-tier match quality (higher = better).
 //	recency — app frecency (opens/kills/time) or fallback preset/zoxide (higher = better).
+//	cooccur — pair score with current session (higher = better); 0 if no context.
 //	pathQ   — shallower path (higher = better): -depth.
 //	idx     — stable input order.
 //
-// Idle (empty q): tier=0; sort kind → recency → pathQ → idx.
+// Idle (empty q): tier=0; sort kind → recency → cooccur → pathQ → idx.
 //
 // Frecency (usage table): opens with day-decay minus kill penalty — see frecencyScore.
 //
@@ -58,6 +59,7 @@ type rankKey struct {
 	kind    int8
 	detail  int32
 	recency int64
+	cooccur int64
 	pathQ   int8
 	idx     int
 }
@@ -74,6 +76,9 @@ func (a rankKey) less(b rankKey) bool {
 	}
 	if a.recency != b.recency {
 		return a.recency > b.recency
+	}
+	if a.cooccur != b.cooccur {
+		return a.cooccur > b.cooccur
 	}
 	if a.pathQ != b.pathQ {
 		return a.pathQ > b.pathQ
@@ -417,12 +422,12 @@ func rankOf(q string, it item, idx int) (rankKey, bool) {
 	q = strings.TrimSpace(q)
 
 	if q == "" {
-		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, pathQ: pq, idx: idx}, true
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, cooccur: it.cooccur, pathQ: pq, idx: idx}, true
 	}
 
 	tokens := strings.Fields(strings.ToLower(q))
 	if len(tokens) == 0 {
-		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, pathQ: pq, idx: idx}, true
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, cooccur: it.cooccur, pathQ: pq, idx: idx}, true
 	}
 
 	// Multi-token AND: every token must match; tier = worst; detail = sum.
@@ -448,6 +453,7 @@ func rankOf(q string, it item, idx int) (rankKey, bool) {
 		kind:    kr,
 		detail:  detail,
 		recency: it.recency,
+		cooccur: it.cooccur,
 		pathQ:   pq,
 		idx:     idx,
 	}, true

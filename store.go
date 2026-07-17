@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -135,6 +136,16 @@ CREATE TABLE IF NOT EXISTS usage (
   kills     INTEGER NOT NULL DEFAULT 0,
   last_open INTEGER NOT NULL DEFAULT 0,
   last_kill INTEGER NOT NULL DEFAULT 0
+);`); err != nil {
+		return err
+	}
+	if _, err = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS pair (
+  a        TEXT NOT NULL,
+  b        TEXT NOT NULL,
+  n        INTEGER NOT NULL DEFAULT 0,
+  last     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (a, b)
 );`); err != nil {
 		return err
 	}
@@ -347,6 +358,73 @@ func (s *Store) AllUsage() (map[string]Usage, error) {
 			return nil, err
 		}
 		out[u.Name] = u
+	}
+	return out, rows.Err()
+}
+
+// RecordPair bumps undirected co-occurrence (a,b) with day-decay friendly counters.
+func (s *Store) RecordPair(a, b string) error {
+	a, b = strings.TrimSpace(a), strings.TrimSpace(b)
+	if a == "" || b == "" || a == b {
+		return nil
+	}
+	// canonical order so (x,y) == (y,x)
+	if a > b {
+		a, b = b, a
+	}
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`
+INSERT INTO pair(a, b, n, last) VALUES(?, ?, 1, ?)
+ON CONFLICT(a, b) DO UPDATE SET
+  n = n + 1,
+  last = excluded.last
+`, a, b, now)
+	return err
+}
+
+// RecordPairsWithLive records pairs between name and every other live session.
+func (s *Store) RecordPairsWithLive(name string, live []string) {
+	for _, other := range live {
+		_ = s.RecordPair(name, other)
+	}
+}
+
+// PairScores returns map[otherName]decayedScore given context session.
+// Score = n*1000/(1+ageDays); 0 if no rows.
+func (s *Store) PairScores(ctx string, now int64) (map[string]int64, error) {
+	ctx = strings.TrimSpace(ctx)
+	if ctx == "" {
+		return nil, nil
+	}
+	if now <= 0 {
+		now = time.Now().Unix()
+	}
+	rows, err := s.db.Query(`
+SELECT a, b, n, last FROM pair WHERE a = ? OR b = ?
+`, ctx, ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var a, b string
+		var n, last int64
+		if err := rows.Scan(&a, &b, &n, &last); err != nil {
+			return nil, err
+		}
+		other := b
+		if a != ctx {
+			other = a
+		}
+		age := int64(0)
+		if last > 0 && now >= last {
+			age = (now - last) / 86400
+		}
+		if n > 10_000 {
+			n = 10_000
+		}
+		out[other] = n * 1000 / (1 + age)
 	}
 	return out, rows.Err()
 }

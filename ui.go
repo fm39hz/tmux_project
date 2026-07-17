@@ -43,8 +43,10 @@ type model struct {
 	help     bool      // ? toggles full key help
 	tmpl     string    // sticky template name (default|…)
 	started  time.Time // swallow Alt-release ESC right after open (display-popup)
-	editPath string    // temp file while $EDITOR open
-	editOld  string    // preset name before edit (rename detect)
+	ctx      string    // current tmux session (co-occurrence context)
+	pairs    map[string]int64
+	editPath string // temp file while $EDITOR open
+	editOld  string // preset name before edit (rename detect)
 }
 
 var (
@@ -85,8 +87,18 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		path:  createCwd,
 	}
 	base := collectBase(ctl, store, create)
+	now := time.Now().Unix()
 	if us, err := store.AllUsage(); err == nil {
-		applyUsage(base, us, time.Now().Unix())
+		applyUsage(base, us, now)
+	}
+	ctx := ""
+	if ctl != nil {
+		ctx = ctl.CurrentSession()
+	}
+	var pairs map[string]int64
+	if store != nil && ctx != "" {
+		pairs, _ = store.PairScores(ctx, now)
+		applyCooccur(base, pairs)
 	}
 	m := model{
 		base:    base,
@@ -96,6 +108,8 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		maxShow: 12,
 		tmpl:    readActiveTemplateName(),
 		started: time.Now(),
+		ctx:     ctx,
+		pairs:   pairs,
 	}
 	m.refilter()
 	return m
@@ -111,9 +125,11 @@ func (m *model) mergeZoxide(paths []string) {
 	names, pths := occupancy(m.base)
 	m.zox = zoxideItems(paths, names, pths)
 	if m.store != nil {
+		now := time.Now().Unix()
 		if us, err := m.store.AllUsage(); err == nil {
-			applyUsage(m.zox, us, time.Now().Unix())
+			applyUsage(m.zox, us, now)
 		}
+		applyCooccur(m.zox, m.pairs)
 	}
 }
 
@@ -363,11 +379,21 @@ func (m *model) reload() {
 	names, pths := occupancy(m.base)
 	m.zox = zoxideItems(zoxideList(), names, pths)
 	if m.store != nil {
+		now := time.Now().Unix()
 		if us, err := m.store.AllUsage(); err == nil {
-			now := time.Now().Unix()
 			applyUsage(m.base, us, now)
 			applyUsage(m.zox, us, now)
 		}
+		if m.ctl != nil {
+			m.ctx = m.ctl.CurrentSession()
+		}
+		if m.ctx != "" {
+			m.pairs, _ = m.store.PairScores(m.ctx, now)
+		} else {
+			m.pairs = nil
+		}
+		applyCooccur(m.base, m.pairs)
+		applyCooccur(m.zox, m.pairs)
 	}
 	m.refilter()
 }

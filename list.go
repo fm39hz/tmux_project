@@ -26,6 +26,8 @@ type item struct {
 	// Preset: last_used unix; Zoxide: inverted list index (zoxide score order);
 	// Active/Create: 0 (kind already prefers them).
 	recency int64
+	// cooccur: decayed pair score with current tmux session (0 if none).
+	cooccur int64
 }
 
 const zoxCap = 40 // unfiltered list shows top-N zoxide only
@@ -171,6 +173,18 @@ func applyUsage(items []item, usages map[string]Usage, now int64) {
 		}
 		if s := usageRecency(u, now); s > 0 {
 			items[i].recency = s
+		}
+	}
+}
+
+// applyCooccur sets item.cooccur from pair scores for context session.
+func applyCooccur(items []item, scores map[string]int64) {
+	if len(scores) == 0 {
+		return
+	}
+	for i := range items {
+		if s, ok := scores[items[i].name]; ok {
+			items[i].cooccur = s
 		}
 	}
 }

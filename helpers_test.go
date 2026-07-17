@@ -549,3 +549,40 @@ func TestProjectSessionSubdir(t *testing.T) {
 		t.Fatalf("name %q", name)
 	}
 }
+
+func TestRankCooccurBreaksRecencyTie(t *testing.T) {
+	// same tier/kind/detail/recency: higher cooccur wins
+	q := "svc"
+	a := item{kind: kindZoxide, name: "svc-a", path: "/z/svc-a", recency: 10, cooccur: 5}
+	b := item{kind: kindZoxide, name: "svc-b", path: "/z/svc-b", recency: 10, cooccur: 50}
+	got := rankItems(q, []item{a, b})
+	if got[0].name != "svc-b" {
+		t.Fatalf("want svc-b (cooccur) first, got %s", got[0].name)
+	}
+}
+
+func TestRankCooccurBelowRecency(t *testing.T) {
+	// same name shape → equal tier/detail/kind; recency must beat cooccur
+	q := "svcxx"
+	hot := item{kind: kindZoxide, name: "svcxx-a", path: "/z/svcxx-a", recency: 500, cooccur: 0}
+	paired := item{kind: kindZoxide, name: "svcxx-b", path: "/z/svcxx-b", recency: 10, cooccur: 999}
+	// ensure equal detail: identical prefix structure
+	got := rankItems(q, []item{paired, hot})
+	if mustKey(q, hot).detail != mustKey(q, paired).detail {
+		t.Fatalf("test setup detail mismatch hot=%d pair=%d", mustKey(q, hot).detail, mustKey(q, paired).detail)
+	}
+	if got[0].name != "svcxx-a" {
+		t.Fatalf("recency should beat cooccur: got %s keys hot=%+v pair=%+v",
+			got[0].name, mustKey(q, hot), mustKey(q, paired))
+	}
+}
+
+func TestPairCanonical(t *testing.T) {
+	// unit-level: RecordPair order independence via store if possible — skip if no db
+	// just ensure applyCooccur maps names
+	items := []item{{name: "b"}, {name: "c"}}
+	applyCooccur(items, map[string]int64{"b": 7, "x": 1})
+	if items[0].cooccur != 7 || items[1].cooccur != 0 {
+		t.Fatalf("%+v", items)
+	}
+}
