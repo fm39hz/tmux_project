@@ -1,1 +1,14 @@
-tmux_project
+# binary
+/tmux_project
+*.exe
+*.test
+*.out
+
+# editor / OS
+.DS_Store
+*~
+*.swp
+
+# local env
+.env
+.env.*
