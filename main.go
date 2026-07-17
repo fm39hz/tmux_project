@@ -32,7 +32,7 @@ func main() {
 
 Usage:
   tmux_project              interactive picker
-  tmux_project -f           freeze active session → sqlite
+  tmux_project -f           freeze session (current if in tmux, else pick) → sqlite
   tmux_project -e [name]    edit preset in $EDITOR
 
 Keys (fzf-style combobox — type to filter anytime):
@@ -125,21 +125,24 @@ func freezeCLI() error {
 	}
 	defer store.Close()
 
-	live, err := ctl.ListLive()
-	if err != nil {
-		return err
-	}
-	if len(live) == 0 {
-		return fmt.Errorf("no active sessions")
-	}
-
-	items := make([]string, 0, len(live))
-	for _, s := range live {
-		items = append(items, s.Name)
-	}
-	name, err := runPick(items)
-	if err != nil || name == "" {
-		return err
+	// inside tmux → snapshot current session; outside → pick
+	name := ctl.CurrentSession()
+	if name == "" {
+		live, err := ctl.ListLive()
+		if err != nil {
+			return err
+		}
+		if len(live) == 0 {
+			return fmt.Errorf("no active sessions")
+		}
+		items := make([]string, 0, len(live))
+		for _, s := range live {
+			items = append(items, s.Name)
+		}
+		name, err = runPick(items)
+		if err != nil || name == "" {
+			return err
+		}
 	}
 	p, err := ctl.Freeze(name)
 	if err != nil {

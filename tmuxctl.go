@@ -44,6 +44,18 @@ func (c *TmuxCtl) Has(name string) bool {
 	return c.t.HasSession(name)
 }
 
+// CurrentSession: name of session this client is attached to. Empty if outside tmux.
+func (c *TmuxCtl) CurrentSession() string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "display-message", "-p", "#S").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 func (c *TmuxCtl) Kill(name string) error {
 	s, err := c.t.GetSessionByName(name)
 	if err != nil || s == nil {

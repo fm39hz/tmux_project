@@ -34,7 +34,7 @@ go build -ldflags='-s -w' -o tmux_project .
 
 ```bash
 tmux_project           # picker
-tmux_project -f        # freeze active session → sqlite
+tmux_project -f        # freeze current session (or pick if outside tmux)
 tmux_project -e [name] # edit preset JSON in $EDITOR
 tmux_project -h
 ```
