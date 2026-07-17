@@ -166,3 +166,63 @@ func TestRelativizeCwd(t *testing.T) {
 		t.Fatal("outside")
 	}
 }
+
+func TestScoreMatchOrder(t *testing.T) {
+	// exact > prefix > substring > fuzzy
+	e := scoreMatch("foo", "foo")
+	p := scoreMatch("foo", "foobar")
+	s := scoreMatch("foo", "xfoobar")
+	f := scoreMatch("fo", "x-f-o-y") // still matches fuzzy-ish "f" then "o" in path-like
+	if !(e > p && p > s) {
+		t.Fatalf("exact %d prefix %d substr %d", e, p, s)
+	}
+	if f < 0 {
+		// "fo" vs "x-f-o-y" should match subsequence
+		t.Fatal("fuzzy miss")
+	}
+	if scoreMatch("zzz", "abc") >= 0 {
+		t.Fatal("false positive")
+	}
+}
+
+func TestScoreItemPrefersNameAndActive(t *testing.T) {
+	q := "proj"
+	active := item{kind: kindActive, name: "proj", path: "/a/proj", title: "[Active] proj"}
+	zox := item{kind: kindZoxide, name: "other", path: "/z/proj-extra", title: "[Zoxide] other"}
+	// name exact-ish prefix on active should beat path hit on zoxide
+	sa, sz := scoreItem(q, active), scoreItem(q, zox)
+	if sa < 0 || sz < 0 {
+		t.Fatalf("scores %d %d", sa, sz)
+	}
+	if sa <= sz {
+		t.Fatalf("active name should win: active=%d zox=%d", sa, sz)
+	}
+	// better name match beats kind: zoxide named "proj" vs active weakly matching
+	zoxName := item{kind: kindZoxide, name: "proj", path: "/z/proj", title: "[Zoxide] proj"}
+	activeWeak := item{kind: kindActive, name: "zzz", path: "/a/something-proj-x", title: "[Active] zzz"}
+	if scoreItem(q, zoxName) <= scoreItem(q, activeWeak) {
+		t.Fatalf("strong name on zox should beat weak path on active: %d vs %d",
+			scoreItem(q, zoxName), scoreItem(q, activeWeak))
+	}
+}
+
+func TestKindScoreIdleOrder(t *testing.T) {
+	c := scoreItem("", item{kind: kindCreate, name: "x"})
+	a := scoreItem("", item{kind: kindActive, name: "x"})
+	p := scoreItem("", item{kind: kindPreset, name: "x"})
+	z := scoreItem("", item{kind: kindZoxide, name: "x"})
+	if !(c > a && a > p && p > z) {
+		t.Fatalf("idle order C=%d A=%d P=%d Z=%d", c, a, p, z)
+	}
+}
+
+func TestScoreKhoPrefersActive(t *testing.T) {
+	// typing "kho" with live kho-cong should beat zoxide dir literally named "kho"
+	q := "kho"
+	active := item{kind: kindActive, name: "kho-cong", path: "/home/fm39hz/Workspace/Tecapro/kho-cong", title: "[Active] kho-cong"}
+	zox := item{kind: kindZoxide, name: "kho", path: "/home/fm39hz/Workspace/Tecapro/kho-cong/workspace/deploy/kho", title: "[Zoxide] kho"}
+	sa, sz := scoreItem(q, active), scoreItem(q, zox)
+	if sa <= sz {
+		t.Fatalf("want active kho-cong > zox kho: active=%d zox=%d", sa, sz)
+	}
+}

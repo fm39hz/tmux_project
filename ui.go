@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -246,16 +247,28 @@ func (m *model) pool() []item {
 func (m *model) refilter() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
 	pool := m.pool()
-	if q == "" {
-		m.view = pool
-	} else {
-		m.view = m.view[:0]
-		for _, it := range pool {
-			hay := strings.ToLower(it.title + " " + it.name + " " + it.path + " " + it.desc)
-			if fuzzyMatch(q, hay) {
-				m.view = append(m.view, it)
-			}
+	type scored struct {
+		it    item
+		score int
+		idx   int
+	}
+	hits := make([]scored, 0, len(pool))
+	for i, it := range pool {
+		s := scoreItem(q, it)
+		if s < 0 {
+			continue
 		}
+		hits = append(hits, scored{it, s, i})
+	}
+	sort.SliceStable(hits, func(a, b int) bool {
+		if hits[a].score != hits[b].score {
+			return hits[a].score > hits[b].score
+		}
+		return hits[a].idx < hits[b].idx
+	})
+	m.view = m.view[:0]
+	for _, h := range hits {
+		m.view = append(m.view, h.it)
 	}
 	if m.cursor >= len(m.view) {
 		m.cursor = len(m.view) - 1
@@ -265,7 +278,7 @@ func (m *model) refilter() {
 	}
 }
 
-// refilterFromQuery: user edited filter → jump to first match.
+// refilterFromQuery: user edited filter → jump to best match.
 func (m *model) refilterFromQuery() {
 	m.refilter()
 	m.cursor = 0
@@ -275,28 +288,155 @@ func (m *model) totalCount() int {
 	return len(m.base) + len(m.zox)
 }
 
-// subsequence match like fzf default (case-insensitive already applied).
-// rune-safe — byte index breaks on UTF-8 paths.
+// scoreItem ranks one list entry. -1 = no match (only when q non-empty).
+// Single algorithm for idle + filter:
+//
+//	empty  → kind weight only (Create > Active > Preset > Zoxide)
+//	typed  → match quality + field bonus + small kind tie-break
+func scoreItem(q string, it item) int {
+	if q == "" {
+		return kindScore(it.kind)
+	}
+	fields := []struct {
+		s     string
+		bonus int
+	}{
+		{strings.ToLower(it.name), 2000},
+		{strings.ToLower(filepath.Base(it.path)), 1500},
+		{strings.ToLower(it.path), 800},
+		{strings.ToLower(it.desc), 400},
+		{strings.ToLower(it.title), 200},
+	}
+	best := -1
+	for _, f := range fields {
+		if f.s == "" {
+			continue
+		}
+		s := scoreMatch(q, f.s)
+		if s < 0 {
+			continue
+		}
+		total := s + f.bonus
+		if total > best {
+			best = total
+		}
+	}
+	if best < 0 {
+		return -1
+	}
+	return best + kindScore(it.kind)
+}
+
+// kindScore: always applied (idle + typed).
+// Scale is large enough that Active/Preset beat a short exact Zoxide name
+// when the query is only a prefix of the live session (e.g. "kho" → kho-cong).
+// Match tiers (exact≈1e5, prefix≈8e4) still dominate across different match qualities.
+func kindScore(k kind) int {
+	switch k {
+	case kindCreate:
+		return 35_000 // idle: enter sticky tmpl first
+	case kindActive:
+		return 30_000
+	case kindPreset:
+		return 20_000
+	default: // zoxide
+		return 0
+	}
+}
+
+// scoreMatch: higher = better. -1 = no match.
+// exact > segment-prefix > prefix > substring > subsequence.
+func scoreMatch(query, text string) int {
+	if query == "" {
+		return 0
+	}
+	if text == query {
+		// exact still top of match ladder, but kindScore can outweigh short exact vs longer live names
+		return 100_000
+	}
+	// "kho" vs "kho-cong": query is a full path/name segment before -/_//
+	if strings.HasPrefix(text, query) {
+		rest := text[len(query):]
+		if rest == "" {
+			return 100_000
+		}
+		switch rest[0] {
+		case '-', '_', '/', '.', ' ':
+			// segment prefix — almost as good as exact, longer names slightly preferred
+			return 90_000 + len(text)
+		}
+		// plain prefix: shorter remainder still a bit better
+		return 80_000 - len(text)
+	}
+	if i := strings.Index(text, query); i >= 0 {
+		return 50_000 - i*10 - len(text)
+	}
+	return scoreFuzzy(query, text)
+}
+
+// scoreFuzzy: rune subsequence with consecutive-run bonus. -1 if no match.
+func scoreFuzzy(query, text string) int {
+	qr, tr := []rune(query), []rune(text)
+	if len(qr) == 0 {
+		return 0
+	}
+	if len(qr) > len(tr) {
+		return -1
+	}
+	ti := 0
+	score := 0
+	prev := -2 // last match index
+	first := -1
+	for _, q := range qr {
+		found := false
+		for ; ti < len(tr); ti++ {
+			if tr[ti] != q {
+				continue
+			}
+			if first < 0 {
+				first = ti
+			}
+			// consecutive run
+			if ti == prev+1 {
+				score += 50
+			} else {
+				score += 10
+				// gap penalty
+				if prev >= 0 {
+					gap := ti - prev - 1
+					if gap > 0 {
+						score -= gap
+					}
+				}
+			}
+			// word-boundary / start bonus
+			if ti == 0 || tr[ti-1] == '/' || tr[ti-1] == '-' || tr[ti-1] == '_' || tr[ti-1] == ' ' {
+				score += 20
+			}
+			prev = ti
+			ti++
+			found = true
+			break
+		}
+		if !found {
+			return -1
+		}
+	}
+	// earlier first match, shorter text → better
+	score += 1000 - first*2
+	score -= len(tr)
+	if score < 0 {
+		score = 0
+	}
+	return score
+}
+
+// fuzzyMatch kept for pick.go / tests — true if any match.
 func fuzzyMatch(query, text string) bool {
 	if query == "" {
 		return true
 	}
-	qr, tr := []rune(query), []rune(text)
-	ti := 0
-	for _, q := range qr {
-		found := false
-		for ; ti < len(tr); ti++ {
-			if tr[ti] == q {
-				ti++
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
+	return scoreMatch(query, text) >= 0
 }
 
 // truncateRunes cuts s to at most n runes, adding "…" when clipped.
