@@ -149,3 +149,23 @@ func rankItems(q string, pool []item) []item {
 	}
 	return out
 }
+
+// applyUsage overlays app frecency onto items when usage rows exist.
+// Fallback recency (preset last_used / zoxide order) kept if no usage yet.
+func applyUsage(items []item, usages map[string]Usage, now int64) {
+	if len(usages) == 0 {
+		return
+	}
+	if now <= 0 {
+		now = 0
+	}
+	for i := range items {
+		u, ok := usages[items[i].name]
+		if !ok {
+			continue
+		}
+		if s := usageRecency(u, now); s > 0 {
+			items[i].recency = s
+		}
+	}
+}

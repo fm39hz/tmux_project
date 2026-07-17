@@ -84,8 +84,12 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		name:  createName,
 		path:  createCwd,
 	}
+	base := collectBase(ctl, store, create)
+	if us, err := store.AllUsage(); err == nil {
+		applyUsage(base, us, time.Now().Unix())
+	}
 	m := model{
-		base:    collectBase(ctl, store, create),
+		base:    base,
 		ctl:     ctl,
 		store:   store,
 		create:  create,
@@ -106,6 +110,11 @@ func loadZoxideCmd() tea.Msg {
 func (m *model) mergeZoxide(paths []string) {
 	names, pths := occupancy(m.base)
 	m.zox = zoxideItems(paths, names, pths)
+	if m.store != nil {
+		if us, err := m.store.AllUsage(); err == nil {
+			applyUsage(m.zox, us, time.Now().Unix())
+		}
+	}
 }
 
 func (m *model) pool() []item {
@@ -262,6 +271,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err := m.ctl.Kill(it.name); err != nil {
 						m.status = err.Error()
 					} else {
+						if m.store != nil {
+							_ = m.store.RecordKill(it.name)
+						}
 						m.status = "killed " + it.name
 						m.reload()
 					}
@@ -350,6 +362,13 @@ func (m *model) reload() {
 	m.base = collectBase(m.ctl, m.store, m.create)
 	names, pths := occupancy(m.base)
 	m.zox = zoxideItems(zoxideList(), names, pths)
+	if m.store != nil {
+		if us, err := m.store.AllUsage(); err == nil {
+			now := time.Now().Unix()
+			applyUsage(m.base, us, now)
+			applyUsage(m.zox, us, now)
+		}
+	}
 	m.refilter()
 }
 

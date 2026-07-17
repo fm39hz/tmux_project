@@ -104,7 +104,15 @@ CREATE TABLE IF NOT EXISTS pane (
 	if n == 0 {
 		_, _ = s.db.Exec(`ALTER TABLE window ADD COLUMN cwd TEXT NOT NULL DEFAULT ''`)
 	}
-	return nil
+	_, err = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS usage (
+  name      TEXT PRIMARY KEY,
+  opens     INTEGER NOT NULL DEFAULT 0,
+  kills     INTEGER NOT NULL DEFAULT 0,
+  last_open INTEGER NOT NULL DEFAULT 0,
+  last_kill INTEGER NOT NULL DEFAULT 0
+);`)
+	return err
 }
 
 func (s *Store) ListNames() ([]string, error) {
@@ -257,6 +265,63 @@ func (s *Store) Touch(name string) error {
 func (s *Store) Delete(name string) error {
 	_, err := s.db.Exec(`DELETE FROM session WHERE name = ?`, name)
 	return err
+}
+
+// Usage is per-session connect/kill stats for frecency ranking.
+type Usage struct {
+	Name     string
+	Opens    int64
+	Kills    int64
+	LastOpen int64
+	LastKill int64
+}
+
+// RecordOpen increments open count (connect / create / attach).
+func (s *Store) RecordOpen(name string) error {
+	if name == "" {
+		return nil
+	}
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`
+INSERT INTO usage(name, opens, kills, last_open, last_kill) VALUES(?, 1, 0, ?, 0)
+ON CONFLICT(name) DO UPDATE SET
+  opens = opens + 1,
+  last_open = excluded.last_open
+`, name, now)
+	return err
+}
+
+// RecordKill increments kill count (ctrl-x / explicit kill).
+func (s *Store) RecordKill(name string) error {
+	if name == "" {
+		return nil
+	}
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`
+INSERT INTO usage(name, opens, kills, last_open, last_kill) VALUES(?, 0, 1, 0, ?)
+ON CONFLICT(name) DO UPDATE SET
+  kills = kills + 1,
+  last_kill = excluded.last_kill
+`, name, now)
+	return err
+}
+
+// AllUsage returns name → usage for ranking merge.
+func (s *Store) AllUsage() (map[string]Usage, error) {
+	rows, err := s.db.Query(`SELECT name, opens, kills, last_open, last_kill FROM usage`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]Usage{}
+	for rows.Next() {
+		var u Usage
+		if err := rows.Scan(&u.Name, &u.Opens, &u.Kills, &u.LastOpen, &u.LastKill); err != nil {
+			return nil, err
+		}
+		out[u.Name] = u
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) String() string {

@@ -101,22 +101,27 @@ func run() error {
 }
 
 func connectItem(ctl *TmuxCtl, store *Store, it item) error {
+	var err error
 	switch it.kind {
 	case kindCreate, kindZoxide:
 		// live → preset → default template (no prompts)
-		return connectProject(ctl, store, it.name, it.path)
+		err = connectProject(ctl, store, it.name, it.path)
 	case kindActive:
-		return ctl.Connect(it.name, "")
+		err = ctl.Connect(it.name, "")
 	case kindPreset:
-		p, err := store.Get(it.name)
-		if err != nil {
-			return err
+		p, errGet := store.Get(it.name)
+		if errGet != nil {
+			return errGet
 		}
 		_ = store.Touch(it.name)
-		return ctl.ConnectPreset(p)
+		err = ctl.ConnectPreset(p)
 	default:
 		return fmt.Errorf("unknown item kind")
 	}
+	if err == nil && store != nil {
+		_ = store.RecordOpen(it.name)
+	}
+	return err
 }
 
 func freezeCLI() error {

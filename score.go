@@ -11,11 +11,13 @@ import (
 //	tier    — match quality band (lower = better). Kind never outranks a better tier.
 //	kind    — domain preference within tier (higher = better).
 //	detail  — within-tier match quality (higher = better).
-//	recency — last_used / zoxide frecency (higher = better).
+//	recency — app frecency (opens/kills/time) or fallback preset/zoxide (higher = better).
 //	pathQ   — shallower path (higher = better): -depth.
 //	idx     — stable input order.
 //
 // Idle (empty q): tier=0; sort kind → recency → pathQ → idx.
+//
+// Frecency (usage table): opens with day-decay minus kill penalty — see frecencyScore.
 //
 // Typed tiers:
 //
@@ -356,6 +358,56 @@ func bestHitToken(token string, it item) (fieldHit, bool) {
 		_ = h
 	}
 	return best, any
+}
+
+// frecencyScore combines open frequency, recency decay, and kill penalty.
+// Higher = used more / more recently / killed less. Pure integer (no float).
+//
+//	opens: day-decay half-life ~7d via opens*1000/(1+ageDays)
+//	kills: soft penalty kills*200/(1+killAgeDays)
+//	plus small recency bump so a brand-new open beats a stale high-open ghost
+func frecencyScore(opens, kills, lastOpen, lastKill, now int64) int64 {
+	if opens <= 0 && kills <= 0 && lastOpen <= 0 {
+		return 0
+	}
+	if now <= 0 {
+		now = 0
+	}
+	ageOpen := int64(0)
+	if lastOpen > 0 && now >= lastOpen {
+		ageOpen = (now - lastOpen) / 86400
+	}
+	ageKill := int64(0)
+	if lastKill > 0 && now >= lastKill {
+		ageKill = (now - lastKill) / 86400
+	}
+	o := opens
+	if o > 10_000 {
+		o = 10_000
+	}
+	k := kills
+	if k > 10_000 {
+		k = 10_000
+	}
+	// frequency with day decay
+	freq := o * 1000 / (1 + ageOpen)
+	// recent activity bump (0..100)
+	bump := int64(100) - ageOpen
+	if bump < 0 {
+		bump = 0
+	}
+	// kill penalty (recent kills hurt more)
+	pen := k * 200 / (1 + ageKill)
+	score := freq + bump - pen
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+// usageRecency maps stored Usage → rank recency key at "now".
+func usageRecency(u Usage, now int64) int64 {
+	return frecencyScore(u.Opens, u.Kills, u.LastOpen, u.LastKill, now)
 }
 
 // rankOf builds the sort key. ok=false → drop.

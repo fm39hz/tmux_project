@@ -445,3 +445,34 @@ func TestRankRecencyPresetLastUsed(t *testing.T) {
 		t.Fatalf("idle recency: want new first, got %s", got[0].name)
 	}
 }
+
+func TestFrecencyScoreBasic(t *testing.T) {
+	now := int64(1_700_000_000)
+	// many opens recent >> few opens old
+	hot := frecencyScore(20, 0, now-3600, 0, now)      // 20 opens, 1h ago
+	cold := frecencyScore(20, 0, now-86400*30, 0, now) // 20 opens, 30d ago
+	if hot <= cold {
+		t.Fatalf("hot %d should beat cold %d", hot, cold)
+	}
+	// kills penalize
+	clean := frecencyScore(10, 0, now-3600, 0, now)
+	killed := frecencyScore(10, 5, now-3600, now-3600, now)
+	if killed >= clean {
+		t.Fatalf("kills should penalize: clean=%d killed=%d", clean, killed)
+	}
+	// zero
+	if frecencyScore(0, 0, 0, 0, now) != 0 {
+		t.Fatal("zero usage")
+	}
+}
+
+func TestRankUsesFrecencyRecencyField(t *testing.T) {
+	// same tier/kind/detail: higher item.recency (frecency) wins
+	q := "demo"
+	a := item{kind: kindZoxide, name: "demoapp", path: "/z/demoapp", recency: 10}
+	b := item{kind: kindZoxide, name: "demokit", path: "/z/demokit", recency: 500}
+	got := rankItems(q, []item{a, b})
+	if got[0].name != "demokit" {
+		t.Fatalf("want demokit first, got %s", got[0].name)
+	}
+}
