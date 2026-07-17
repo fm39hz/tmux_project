@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // Project root markers — nearest walk-up wins (innermost).
@@ -69,6 +70,8 @@ var genericBases = map[string]bool{
 	"game": true, "godot": true, "project": true, "src-tauri": true,
 }
 
+var projectRootMemo sync.Map // cleaned path → root
+
 // findProjectRoot walks up from start to the nearest directory that looks
 // like a project root. If nothing matches, returns cleaned start (not /).
 func findProjectRoot(start string) string {
@@ -80,10 +83,17 @@ func findProjectRoot(start string) string {
 			return start
 		}
 	}
+	if v, ok := projectRootMemo.Load(start); ok {
+		return v.(string)
+	}
 	path := start
+	var chain []string
+	root := start
 	for path != "/" && path != "." && path != "" {
+		chain = append(chain, path)
 		if isProjectRoot(path) {
-			return path
+			root = path
+			break
 		}
 		parent := filepath.Dir(path)
 		if parent == path {
@@ -91,7 +101,11 @@ func findProjectRoot(start string) string {
 		}
 		path = parent
 	}
-	return start
+	for _, p := range chain {
+		projectRootMemo.Store(p, root)
+	}
+	projectRootMemo.Store(start, root)
+	return root
 }
 
 func isProjectRoot(dir string) bool {

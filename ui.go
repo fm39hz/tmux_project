@@ -28,7 +28,8 @@ type result struct {
 
 type model struct {
 	base     []item // active + optional create + presets (no zoxide)
-	zox      []item // full zoxide list (score order)
+	zox      []item // zoxide items (seeded from disk cache)
+	zoxStale bool   // need background zoxide refresh
 	view     []item
 	cursor   int
 	query    string
@@ -100,30 +101,63 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		pairs, _ = store.PairScores(ctx, now)
 		applyCooccur(base, pairs)
 	}
+	// Seed zoxide from prebuilt item cache — same frame as Create/Active (no walk).
+	var zox []item
+	zoxItems, zoxAge, zoxOK := loadZoxItemsSync()
+	if zoxOK {
+		zox = dedupeZoxAgainst(zoxItems, base)
+		if store != nil {
+			if us, err := store.AllUsage(); err == nil {
+				applyUsage(zox, us, now)
+			}
+			applyCooccur(zox, pairs)
+		}
+	}
 	m := model{
-		base:    base,
-		ctl:     ctl,
-		store:   store,
-		create:  create,
-		maxShow: 12,
-		tmpl:    readActiveTemplateName(),
-		started: time.Now(),
-		ctx:     ctx,
-		pairs:   pairs,
+		base:     base,
+		zox:      zox,
+		ctl:      ctl,
+		store:    store,
+		create:   create,
+		maxShow:  12,
+		tmpl:     readActiveTemplateName(),
+		started:  time.Now(),
+		ctx:      ctx,
+		pairs:    pairs,
+		zoxStale: zoxItemsStale(zoxAge, zoxOK),
 	}
 	m.refilter()
 	return m
 }
 
-type zoxideMsg []string
-
-func loadZoxideCmd() tea.Msg {
-	return zoxideMsg(zoxideList())
+// zoxideMsg: background refresh finished (pre-built items).
+type zoxideMsg struct {
+	items []item
 }
 
-func (m *model) mergeZoxide(paths []string) {
-	names, pths := occupancy(m.base)
-	m.zox = zoxideItems(paths, names, pths)
+func loadZoxideFreshCmd() tea.Msg {
+	return zoxideMsg{items: rebuildZoxItems()}
+}
+
+func dedupeZoxAgainst(items, base []item) []item {
+	names, pths := occupancy(base)
+	out := make([]item, 0, len(items))
+	for _, it := range items {
+		nr := normPath(it.path)
+		if names[it.name] || (nr != "" && pths[nr]) {
+			continue
+		}
+		names[it.name] = true
+		if nr != "" {
+			pths[nr] = true
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+func (m *model) mergeZoxide(items []item) {
+	m.zox = dedupeZoxAgainst(items, m.base)
 	if m.store != nil {
 		now := time.Now().Unix()
 		if us, err := m.store.AllUsage(); err == nil {
@@ -131,6 +165,7 @@ func (m *model) mergeZoxide(paths []string) {
 		}
 		applyCooccur(m.zox, m.pairs)
 	}
+	m.zoxStale = false
 }
 
 func (m *model) pool() []item {
@@ -177,12 +212,21 @@ func (m *model) totalCount() int {
 	return len(m.base) + len(m.zox)
 }
 
-func (m model) Init() tea.Cmd { return loadZoxideCmd }
+func (m model) Init() tea.Cmd {
+	if !m.zoxStale {
+		return nil // disk items fresh enough
+	}
+	return loadZoxideFreshCmd // background only
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case zoxideMsg:
-		m.mergeZoxide(msg)
+		if len(msg.items) == 0 {
+			m.zoxStale = false
+			return m, nil
+		}
+		m.mergeZoxide(msg.items)
 		m.refilter()
 		return m, nil
 
@@ -380,8 +424,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) reload() {
 	m.base = collectBase(m.ctl, m.store, m.create)
-	names, pths := occupancy(m.base)
-	m.zox = zoxideItems(zoxideList(), names, pths)
+	if items, age, ok := loadZoxItemsSync(); ok {
+		m.zox = dedupeZoxAgainst(items, m.base)
+		m.zoxStale = zoxItemsStale(age, true)
+	} else {
+		m.zox = nil
+		m.zoxStale = true
+	}
 	if m.store != nil {
 		now := time.Now().Unix()
 		if us, err := m.store.AllUsage(); err == nil {

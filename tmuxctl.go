@@ -335,18 +335,3 @@ func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
 }
-
-func zoxideList() []string {
-	out, err := exec.Command("zoxide", "query", "-l").Output()
-	if err != nil {
-		return nil
-	}
-	var paths []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			paths = append(paths, line)
-		}
-	}
-	return paths
-}
