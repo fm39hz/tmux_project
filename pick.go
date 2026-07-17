@@ -7,20 +7,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type listName string
-
 type pickModel struct {
-	all    []listName
-	view   []listName
+	all    []string
+	view   []string
 	cursor int
 	query  string
 	name   string
 	quit   bool
 }
 
-func runPick(names []listName) (string, error) {
+func runPick(names []string) (string, error) {
 	if len(names) == 1 {
-		return string(names[0]), nil
+		return names[0], nil
 	}
 	m := pickModel{all: names}
 	m.refilter()
@@ -39,7 +37,7 @@ func (m *pickModel) refilter() {
 	q := strings.ToLower(strings.TrimSpace(m.query))
 	m.view = m.view[:0]
 	for _, n := range m.all {
-		if q == "" || fuzzyMatch(q, strings.ToLower(string(n))) {
+		if q == "" || fuzzyMatch(q, strings.ToLower(n)) {
 			m.view = append(m.view, n)
 		}
 	}
@@ -62,7 +60,7 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "enter":
 			if len(m.view) > 0 {
-				m.name = string(m.view[m.cursor])
+				m.name = m.view[m.cursor]
 				return m, tea.Quit
 			}
 		case "ctrl+n", "down":
@@ -105,7 +103,7 @@ func (m pickModel) View() string {
 	b.WriteString(styleHeader.Render("  freeze session  ctrl-n/p · enter · esc"))
 	b.WriteString("\n")
 	for i, n := range m.view {
-		line := string(n)
+		line := n
 		if i == m.cursor {
 			b.WriteString(styleCursor.Render("▸ " + line))
 		} else {

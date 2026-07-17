@@ -127,6 +127,9 @@ func parsePreset(text string) (*Preset, error) {
 	if p.Name == "" {
 		return nil, fmt.Errorf("missing name:")
 	}
+	if !validSessionName(p.Name) {
+		return nil, fmt.Errorf("invalid name %q (no colon/control)", p.Name)
+	}
 	if len(p.Windows) == 0 {
 		return nil, fmt.Errorf("need at least one [window:]")
 	}
@@ -158,9 +161,9 @@ func editPreset(store *Store, name string) error {
 		if len(names) == 0 {
 			return fmt.Errorf("no presets — freeze one first")
 		}
-		items := make([]listName, len(names))
+		items := make([]string, len(names))
 		for i, n := range names {
-			items[i] = listName(n)
+			items[i] = n
 		}
 		picked, err := runPick(items)
 		if err != nil || picked == "" {

@@ -30,7 +30,7 @@ type LiveSession struct {
 func (c *TmuxCtl) ListLive() ([]LiveSession, error) {
 	ss, err := c.t.ListSessions()
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 	out := make([]LiveSession, 0, len(ss))
 	for _, s := range ss {
@@ -119,6 +119,9 @@ func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
 //
 // Uses raw tmux commands so shell_command works on new-session / new-window / split-window.
 func (c *TmuxCtl) Load(p *Preset) error {
+	if !validSessionName(p.Name) {
+		return fmt.Errorf("invalid session name %q", p.Name)
+	}
 	if c.Has(p.Name) {
 		return nil
 	}
@@ -132,13 +135,13 @@ func (c *TmuxCtl) Load(p *Preset) error {
 	w0 := wins[0]
 	p0 := w0.Panes[0]
 
-	// new-session -d -s NAME -c CWD -n WINNAME [cmd]
+	// new-session -d -s NAME -c CWD -n WINNAME [cmd...]
 	args := []string{"new-session", "-d", "-s", p.Name, "-c", p0.Cwd}
 	if w0.Name != "" {
 		args = append(args, "-n", w0.Name)
 	}
 	if p0.Cmd != "" {
-		args = append(args, p0.Cmd)
+		args = append(args, cmdArgs(p0.Cmd)...)
 	}
 	if err := c.run(args...); err != nil {
 		return err
@@ -157,7 +160,7 @@ func (c *TmuxCtl) Load(p *Preset) error {
 			args = append(args, "-n", w.Name)
 		}
 		if pn.Cmd != "" {
-			args = append(args, pn.Cmd)
+			args = append(args, cmdArgs(pn.Cmd)...)
 		}
 		if err := c.run(args...); err != nil {
 			return err
@@ -226,7 +229,7 @@ func (c *TmuxCtl) splitRest(session, winName string, panes []PresetPane) error {
 	for _, pn := range panes {
 		args := []string{"split-window", "-t", target, "-h", "-c", pn.Cwd}
 		if pn.Cmd != "" {
-			args = append(args, pn.Cmd)
+			args = append(args, cmdArgs(pn.Cmd)...)
 		}
 		if err := c.run(args...); err != nil {
 			return err
@@ -235,11 +238,35 @@ func (c *TmuxCtl) splitRest(session, winName string, panes []PresetPane) error {
 	return nil
 }
 
+// sessionTarget: exact-name target ("=sess:win"). "=" disables prefix match.
 func sessionTarget(session, winName string) string {
 	if winName != "" {
-		return session + ":" + winName
+		return "=" + session + ":" + winName
 	}
-	return session + ":0"
+	return "=" + session + ":0"
+}
+
+// cmdArgs splits pane Cmd into argv. Usually bare binary; allows "nvim file".
+func cmdArgs(cmd string) []string {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return nil
+	}
+	return strings.Fields(cmd)
+}
+
+// validSessionName: tmux targets use "sess:win" — colon/control break them.
+func validSessionName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch r {
+		case ':', '\n', '\r', '\t':
+			return false
+		}
+	}
+	return true
 }
 
 func (c *TmuxCtl) applyLayout(session string, w PresetWindow) {
@@ -253,6 +280,9 @@ func (c *TmuxCtl) applyLayout(session string, w PresetWindow) {
 
 // Connect attaches or switches to session. Creates empty session if missing.
 func (c *TmuxCtl) Connect(name, cwd string) error {
+	if !validSessionName(name) {
+		return fmt.Errorf("invalid session name %q", name)
+	}
 	if !c.Has(name) {
 		if cwd == "" {
 			cwd, _ = os.Getwd()

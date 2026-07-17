@@ -132,9 +132,9 @@ func freezeCLI() error {
 		return fmt.Errorf("no active sessions")
 	}
 
-	items := make([]listName, 0, len(live))
+	items := make([]string, 0, len(live))
 	for _, s := range live {
-		items = append(items, listName(s.Name))
+		items = append(items, s.Name)
 	}
 	name, err := runPick(items)
 	if err != nil || name == "" {

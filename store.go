@@ -187,6 +187,9 @@ func (s *Store) Get(name string) (*Preset, error) {
 }
 
 func (s *Store) Save(p *Preset) error {
+	if !validSessionName(p.Name) {
+		return fmt.Errorf("invalid session name %q", p.Name)
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err

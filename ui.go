@@ -213,16 +213,18 @@ func (m *model) refilter() {
 	}
 }
 
-// subsequence match like fzf default (case-insensitive already applied)
+// subsequence match like fzf default (case-insensitive already applied).
+// rune-safe — byte index breaks on UTF-8 paths.
 func fuzzyMatch(query, text string) bool {
 	if query == "" {
 		return true
 	}
+	qr, tr := []rune(query), []rune(text)
 	ti := 0
-	for qi := 0; qi < len(query); qi++ {
+	for _, q := range qr {
 		found := false
-		for ; ti < len(text); ti++ {
-			if text[ti] == query[qi] {
+		for ; ti < len(tr); ti++ {
+			if tr[ti] == q {
 				ti++
 				found = true
 				break
@@ -233,6 +235,21 @@ func fuzzyMatch(query, text string) bool {
 		}
 	}
 	return true
+}
+
+// truncateRunes cuts s to at most n runes, adding "…" when clipped.
+func truncateRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if n == 1 {
+		return "…"
+	}
+	return string(r[:n-1]) + "…"
 }
 
 func (m model) Init() tea.Cmd { return loadZoxideCmd }
@@ -511,8 +528,8 @@ func (m model) View() string {
 			if it.desc != "" {
 				line = line + "  " + it.desc
 			}
-			if m.width > 4 && len(line) > m.width-2 {
-				line = line[:m.width-5] + "…"
+			if m.width > 4 {
+				line = truncateRunes(line, m.width-2)
 			}
 			if i == m.cursor {
 				b.WriteString(styleCursor.Render("▸ " + line))

@@ -60,12 +60,9 @@ func walkProc(rootPID, maxDepth int) string {
 	for len(q) > 0 {
 		n := q[0]
 		q = q[1:]
-		if n.depth > 0 { // skip the shell itself at depth 0 if it was shell
-			if name := procComm(n.pid); name != "" && !shellNames[name] {
-				// prefer known tools; still accept unknown non-shells
-				if restoreTools[name] || !shellNames[name] {
-					return name
-				}
+		if n.depth > 0 {
+			if name := procComm(n.pid); name != "" && restoreTools[name] {
+				return name // pass 1: nearest known tool
 			}
 		}
 		if n.depth >= maxDepth {

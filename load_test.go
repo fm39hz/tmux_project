@@ -9,8 +9,9 @@ import (
 )
 
 // mirrors tmuxp/dotnet-grimoire-net.json:
-//   w0 editor: 1 pane nvim @ root
-//   w1 test:   2 panes shell @ root and root/test
+//
+//	w0 editor: 1 pane nvim @ root
+//	w1 test:   2 panes shell @ root and root/test
 func TestLoadGrimoireShape(t *testing.T) {
 	ctl, err := newTmuxCtl()
 	if err != nil {
