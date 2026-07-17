@@ -96,9 +96,7 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m pickModel) View() string {
 	var b strings.Builder
-	b.WriteString(stylePrompt.Render("❯ "))
 	b.WriteString(m.query)
-	b.WriteString(styleDim.Render("█"))
 	b.WriteString("\n")
 	b.WriteString(styleHeader.Render("  freeze session  ctrl-n/p · enter · esc"))
 	b.WriteString("\n")
