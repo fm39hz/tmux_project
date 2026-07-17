@@ -427,7 +427,7 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.CreateTemp(dir, "edit-*.tp")
+	f, err := os.CreateTemp(dir, "edit-*.json")
 	if err != nil {
 		return nil, err
 	}

@@ -47,7 +47,7 @@ Keys (fzf-style combobox — type to filter anytime):
   esc           quit
 
 Store: $XDG_DATA_HOME/tmux_project/state.db
-Edit format: name/cwd + [window: x] + "pane: <cwd> | <cmd>"`)
+Edit format: JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}`)
 			return
 		}
 	}
