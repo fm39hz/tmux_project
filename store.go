@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,8 @@ func openStore() (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
+	// One-shot: empty gotomux DB + legacy state → copy presets over.
+	_ = migrateLegacyDB(dir)
 	db, err := sql.Open("sqlite", filepath.Join(dir, "state.db"))
 	if err != nil {
 		return nil, err
@@ -89,6 +92,85 @@ func dataDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "share", "gotomux"), nil
+}
+
+// migrateLegacyDB copies state.db from old product dirs once when gotomux has no sessions.
+// Does not keep reading legacy paths afterward.
+func migrateLegacyDB(dir string) error {
+	dst := filepath.Join(dir, "state.db")
+	// already has content?
+	if hasSessionRows(dst) {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	roots := []string{filepath.Join(home, ".local", "share")}
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		roots = append([]string{xdg}, roots...)
+	}
+	var src string
+	for _, root := range roots {
+		for _, leg := range []string{"tmux_project", "go-tomux"} {
+			p := filepath.Join(root, leg, "state.db")
+			if hasSessionRows(p) {
+				src = p
+				break
+			}
+		}
+		if src != "" {
+			break
+		}
+	}
+	if src == "" {
+		return nil
+	}
+	// close any WAL on source by best-effort copy of main file only is wrong if WAL pending;
+	// use sqlite backup via file copy of db+wal+shm when present.
+	for _, suf := range []string{"", "-wal", "-shm"} {
+		s := src + suf
+		d := dst + suf
+		if _, err := os.Stat(s); err != nil {
+			continue
+		}
+		if err := copyFile(s, d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasSessionRows(dbPath string) bool {
+	st, err := os.Stat(dbPath)
+	if err != nil || st.Size() == 0 {
+		return false
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	var n int
+	err = db.QueryRow(`SELECT COUNT(*) FROM session`).Scan(&n)
+	return err == nil && n > 0
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -262,7 +344,9 @@ func (s *Store) Save(p *Preset) error {
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().Unix()
-	if _, err := tx.Exec(`DELETE FROM session WHERE name = ?`, p.Name); err != nil {
+	// Replace any prior row for this freeze: exact name, same project cwd, or
+	// legacy alias (tmuxproject vs tmux-project after sanitize change).
+	if err := deleteSessionsForSave(tx, p.Name, p.Cwd); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
@@ -271,10 +355,14 @@ func (s *Store) Save(p *Preset) error {
 	); err != nil {
 		return err
 	}
-	for _, w := range p.Windows {
+	for i, w := range p.Windows {
+		widx := w.Idx
+		if widx == 0 {
+			widx = i
+		}
 		res, err := tx.Exec(
 			`INSERT INTO window(session, idx, name, cwd, layout) VALUES(?,?,?,?,?)`,
-			p.Name, w.Idx, w.Name, w.Cwd, w.Layout,
+			p.Name, widx, w.Name, w.Cwd, w.Layout,
 		)
 		if err != nil {
 			return err
@@ -283,16 +371,79 @@ func (s *Store) Save(p *Preset) error {
 		if err != nil {
 			return err
 		}
-		for _, pn := range w.Panes {
+		for j, pn := range w.Panes {
+			pidx := pn.Idx
+			if pidx == 0 {
+				pidx = j
+			}
 			if _, err := tx.Exec(
 				`INSERT INTO pane(window_id, idx, cwd, cmd) VALUES(?,?,?,?)`,
-				wid, pn.Idx, pn.Cwd, pn.Cmd,
+				wid, pidx, pn.Cwd, pn.Cmd,
 			); err != nil {
 				return err
 			}
 		}
 	}
 	return tx.Commit()
+}
+
+// deleteSessionsForSave removes presets that this Save should replace.
+func deleteSessionsForSave(tx *sql.Tx, name, cwd string) error {
+	// exact name
+	if _, err := tx.Exec(`DELETE FROM session WHERE name = ?`, name); err != nil {
+		return err
+	}
+	// same project root → one preset per project path
+	if cwd != "" {
+		if _, err := tx.Exec(`DELETE FROM session WHERE cwd = ? AND name != ?`, cwd, name); err != nil {
+			return err
+		}
+	}
+	// legacy aliases: names that collapse to the same key without -/_
+	key := sessionAliasKey(name)
+	if key == "" {
+		return nil
+	}
+	rows, err := tx.Query(`SELECT name FROM session`)
+	if err != nil {
+		return err
+	}
+	var victims []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		if n != name && sessionAliasKey(n) == key {
+			victims = append(victims, n)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, n := range victims {
+		if _, err := tx.Exec(`DELETE FROM session WHERE name = ?`, n); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sessionAliasKey: compare names ignoring - and _ (legacy sanitize dropped _).
+func sessionAliasKey(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if r == '-' || r == '_' {
+			continue
+		}
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (s *Store) Touch(name string) error {

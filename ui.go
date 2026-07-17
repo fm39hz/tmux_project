@@ -297,19 +297,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+f": // freeze active
+		case "ctrl+f": // freeze live session → overwrite preset
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				if it.kind == kindActive {
-					p, err := m.ctl.Freeze(it.name)
+				name := it.name
+				// Active always live; Preset freezes only if session currently exists
+				if it.kind == kindActive || (it.kind == kindPreset && m.ctl.Has(name)) {
+					p, err := m.ctl.Freeze(name)
 					if err != nil {
 						m.status = err.Error()
 					} else if err := m.store.Save(p); err != nil {
 						m.status = err.Error()
 					} else {
-						m.status = "froze " + it.name
+						m.status = "froze " + name
 						m.reload()
 					}
+				} else if it.kind == kindPreset {
+					m.status = "session not running — attach first"
 				}
 			}
 			return m, nil
