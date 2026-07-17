@@ -46,13 +46,37 @@ func openStore() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(4)
+	// Single writer is enough; keep pool tiny for a short-lived CLI.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	s := &Store{db: db}
+	if err := s.pragma(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// pragma: personal-tool hygiene — WAL + reasonable sync + busy wait.
+func (s *Store) pragma() error {
+	// modernc accepts these; ignore failures on exotic builds
+	pragmas := []string{
+		`PRAGMA foreign_keys = ON`,
+		`PRAGMA journal_mode = WAL`,
+		`PRAGMA synchronous = NORMAL`,
+		`PRAGMA busy_timeout = 1000`,
+		`PRAGMA temp_store = MEMORY`,
+	}
+	for _, p := range pragmas {
+		if _, err := s.db.Exec(p); err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+	}
+	return nil
 }
 
 func dataDir() (string, error) {
@@ -104,14 +128,17 @@ CREATE TABLE IF NOT EXISTS pane (
 	if n == 0 {
 		_, _ = s.db.Exec(`ALTER TABLE window ADD COLUMN cwd TEXT NOT NULL DEFAULT ''`)
 	}
-	_, err = s.db.Exec(`
+	if _, err = s.db.Exec(`
 CREATE TABLE IF NOT EXISTS usage (
   name      TEXT PRIMARY KEY,
   opens     INTEGER NOT NULL DEFAULT 0,
   kills     INTEGER NOT NULL DEFAULT 0,
   last_open INTEGER NOT NULL DEFAULT 0,
   last_kill INTEGER NOT NULL DEFAULT 0
-);`)
+);`); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_session_last_used ON session(last_used DESC)`)
 	return err
 }
 
