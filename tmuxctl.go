@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/GianlucaP106/gotmux/gotmux"
@@ -327,21 +326,6 @@ func (c *TmuxCtl) ConnectPreset(p *Preset) error {
 
 // --- helpers outside tmux ---
 
-func findProjectRoot(start string) string {
-	path := start
-	for path != "/" {
-		if fileExists(filepath.Join(path, "project.godot")) ||
-			dirExists(filepath.Join(path, ".git")) ||
-			fileExists(filepath.Join(path, "package.json")) ||
-			fileExists(filepath.Join(path, "Cargo.toml")) ||
-			fileExists(filepath.Join(path, "go.mod")) {
-			return path
-		}
-		path = filepath.Dir(path)
-	}
-	return start
-}
-
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
@@ -350,23 +334,6 @@ func fileExists(p string) bool {
 func dirExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
-}
-
-func sessionName(root string) string {
-	base := filepath.Base(root)
-	base = strings.TrimPrefix(base, ".")
-	base = strings.ToLower(base)
-	base = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
-			return r
-		case r == ' ' || r == '.':
-			return '-'
-		default:
-			return -1
-		}
-	}, base)
-	return base
 }
 
 func zoxideList() []string {

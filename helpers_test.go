@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestTruncateRunes(t *testing.T) {
 	s := truncateRunes("nhà cửa đẹp", 5)
@@ -474,5 +478,74 @@ func TestRankUsesFrecencyRecencyField(t *testing.T) {
 	got := rankItems(q, []item{a, b})
 	if got[0].name != "demokit" {
 		t.Fatalf("want demokit first, got %s", got[0].name)
+	}
+}
+
+func TestFindProjectRootNearest(t *testing.T) {
+	dir := t.TempDir()
+	// repo/
+	//   go.mod
+	//   pkg/x/
+	repo := filepath.Join(dir, "repo")
+	sub := filepath.Join(repo, "pkg", "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := findProjectRoot(sub)
+	if got != repo {
+		t.Fatalf("got %q want %q", got, repo)
+	}
+}
+
+func TestFindProjectRootDotnet(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "MyApp")
+	if err := os.MkdirAll(app, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "MyApp.csproj"), []byte("<Project/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := findProjectRoot(app)
+	if got != app {
+		t.Fatalf("got %q want %q", got, app)
+	}
+}
+
+func TestSessionNameGenericPrefix(t *testing.T) {
+	// .../Foo/web → foo-web
+	name := sessionName("/work/Foo/web")
+	if name != "foo-web" {
+		t.Fatalf("got %q", name)
+	}
+	// normal
+	if sessionName("/work/tmux_project") != "tmux-project" && sessionName("/work/tmux_project") != "tmux_project" {
+		// sanitize turns _ to -
+		n := sessionName("/work/tmux_project")
+		if n != "tmux-project" {
+			t.Fatalf("got %q", n)
+		}
+	}
+}
+
+func TestProjectSessionSubdir(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "grimoire")
+	sub := filepath.Join(repo, "src")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	name, root := projectSession(sub)
+	if root != repo {
+		t.Fatalf("root %q want %q", root, repo)
+	}
+	if name != "grimoire" {
+		t.Fatalf("name %q", name)
 	}
 }

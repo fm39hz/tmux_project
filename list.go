@@ -96,31 +96,36 @@ func occupancy(items []item) (names, paths map[string]bool) {
 	return names, paths
 }
 
-// zoxideItems: skip if session name OR path already covered.
+// zoxideItems: skip if session name OR project root already covered.
+// Path is project root (not the raw zoxide hit) so connect never creates a "src" session.
 // recency: earlier in zoxide list (higher frecency) → larger recency.
 func zoxideItems(zpaths []string, names, paths map[string]bool) []item {
 	var out []item
 	n := len(zpaths)
 	for i, p := range zpaths {
-		np := normPath(p)
-		base := sessionName(p)
-		if base == "" {
+		name, root := projectSession(p)
+		if name == "" {
 			continue
 		}
-		if names[base] || (np != "" && paths[np]) {
+		nr := normPath(root)
+		if names[name] || (nr != "" && paths[nr]) {
 			continue
 		}
-		names[base] = true
-		if np != "" {
-			paths[np] = true
+		names[name] = true
+		if nr != "" {
+			paths[nr] = true
+		}
+		desc := p
+		if nr != "" && normPath(p) != nr {
+			desc = root // show root when zoxide pointed at a subdir
 		}
 		out = append(out, item{
 			kind:    kindZoxide,
-			title:   fmt.Sprintf("[Zoxide] %s", base),
-			desc:    p,
-			name:    base,
-			path:    p,
-			recency: int64(n - i), // first path = highest
+			title:   fmt.Sprintf("[Zoxide] %s", name),
+			desc:    desc,
+			name:    name,
+			path:    root,
+			recency: int64(n - i),
 		})
 	}
 	return out
