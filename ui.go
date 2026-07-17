@@ -61,12 +61,12 @@ type model struct {
 }
 
 var (
-	stylePrompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	styleCursor  = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	styleNormal  = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	styleDim     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleStatus  = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styleHeader  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	stylePrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
+	styleCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
+	styleNormal = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
+	styleHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
 func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
@@ -190,15 +190,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		// leave room for prompt + header + status
-		show := msg.Height - 4
-		if show < 3 {
-			show = 3
+		// inline mode: keep list short like fzf --height
+		if m.maxShow <= 0 {
+			m.maxShow = 12
 		}
-		if show > 20 {
-			show = 20
-		}
-		m.maxShow = show
 		return m, nil
 
 	case tea.KeyMsg:
@@ -425,15 +420,22 @@ func (m model) View() string {
 	b.WriteString(styleHeader.Render(fmt.Sprintf("  %d/%d  ^n/p · enter · ^x kill · ^f freeze · ^e edit · ^d del · esc", len(m.view), len(m.all))))
 	b.WriteByte('\n')
 
+	maxShow := m.maxShow
+	if maxShow <= 0 {
+		maxShow = 12
+	}
+
+	shown := 0
 	if len(m.view) == 0 {
 		b.WriteString(styleDim.Render("  (no match)"))
+		b.WriteByte('\n')
+		shown = 1
 	} else {
-		// window around cursor
 		start := 0
-		if m.cursor >= m.maxShow {
-			start = m.cursor - m.maxShow + 1
+		if m.cursor >= maxShow {
+			start = m.cursor - maxShow + 1
 		}
-		end := start + m.maxShow
+		end := start + maxShow
 		if end > len(m.view) {
 			end = len(m.view)
 		}
@@ -452,11 +454,33 @@ func (m model) View() string {
 				b.WriteString(styleNormal.Render("  " + line))
 			}
 			b.WriteByte('\n')
+			shown++
 		}
 	}
+	// pad to fixed height so filter shrink doesn't leave ghost lines
+	for shown < maxShow {
+		b.WriteByte('\n')
+		shown++
+	}
 
+	// status always occupies 1 line — fixed frame height for clearInline
 	if m.status != "" {
 		b.WriteString(styleStatus.Render(m.status))
 	}
+	b.WriteByte('\n')
 	return b.String()
+}
+
+// clearInline erases a bubbletea inline frame left on the terminal (fzf-style).
+func clearInline(view string) {
+	n := strings.Count(view, "\n")
+	if n <= 0 {
+		return
+	}
+	// cursor sits on the blank line after the trailing newline of the last frame
+	var b strings.Builder
+	for i := 0; i < n; i++ {
+		b.WriteString("\x1b[1A\x1b[2K") // up 1 + erase line
+	}
+	fmt.Fprint(os.Stdout, b.String())
 }

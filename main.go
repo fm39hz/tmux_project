@@ -77,16 +77,17 @@ func run() error {
 	name := sessionName(root)
 
 	m := newModel(ctl, store, name, root)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m) // inline like fzf — no alt screen
 	final, err := p.Run()
 	if err != nil {
 		return err
 	}
-	res := final.(model).done
-	if res.action != actionConnect {
+	fm := final.(model)
+	clearInline(fm.View()) // wipe residual frame from scrollback
+	if fm.done.action != actionConnect {
 		return nil
 	}
-	return connectItem(ctl, store, res.item)
+	return connectItem(ctl, store, fm.done.item)
 }
 
 func connectItem(ctl *TmuxCtl, store *Store, it item) error {

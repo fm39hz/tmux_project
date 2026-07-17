@@ -30,6 +30,7 @@ func runPick(names []listName) (string, error) {
 		return "", err
 	}
 	pm := final.(pickModel)
+	clearInline(pm.View())
 	return pm.name, nil
 }
 
