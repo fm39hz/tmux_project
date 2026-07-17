@@ -77,7 +77,8 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		name:  createName,
 		path:  createCwd,
 	}
-	all := collectItems(ctl, store, create)
+	// skip zoxide here — Init loads it async so TUI paints immediately
+	all := collectItems(ctl, store, create, false)
 	m := model{
 		all:     all,
 		ctl:     ctl,
@@ -89,15 +90,37 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 	return m
 }
 
-func collectItems(ctl *TmuxCtl, store *Store, create item) []item {
+func collectItems(ctl *TmuxCtl, store *Store, create item, withZoxide bool) []item {
 	seen := map[string]bool{}
 	var items []item
 
 	items = append(items, create)
 	seen[create.name] = true
 
-	if live, err := ctl.ListLive(); err == nil {
-		for _, s := range live {
+	// live + sqlite in parallel — both cheap, still shaves a bit
+	type liveRes struct {
+		ss  []LiveSession
+		err error
+	}
+	type nameRes struct {
+		ns  []string
+		err error
+	}
+	liveCh := make(chan liveRes, 1)
+	nameCh := make(chan nameRes, 1)
+	go func() {
+		ss, err := ctl.ListLive()
+		liveCh <- liveRes{ss, err}
+	}()
+	go func() {
+		ns, err := store.ListNames()
+		nameCh <- nameRes{ns, err}
+	}()
+	lr := <-liveCh
+	nr := <-nameCh
+
+	if lr.err == nil {
+		for _, s := range lr.ss {
 			seen[s.Name] = true
 			items = append(items, item{
 				kind:    kindActive,
@@ -108,9 +131,8 @@ func collectItems(ctl *TmuxCtl, store *Store, create item) []item {
 			})
 		}
 	}
-
-	if names, err := store.ListNames(); err == nil {
-		for _, n := range names {
+	if nr.err == nil {
+		for _, n := range nr.ns {
 			if seen[n] {
 				continue
 			}
@@ -124,13 +146,43 @@ func collectItems(ctl *TmuxCtl, store *Store, create item) []item {
 		}
 	}
 
-	for _, p := range zoxideList() {
+	if withZoxide {
+		for _, p := range zoxideList() {
+			base := sessionName(p)
+			if seen[base] {
+				continue
+			}
+			seen[base] = true
+			items = append(items, item{
+				kind:  kindZoxide,
+				title: fmt.Sprintf("[Zoxide] %s", base),
+				desc:  p,
+				name:  base,
+				path:  p,
+			})
+		}
+	}
+	return items
+}
+
+type zoxideMsg []string
+
+func loadZoxideCmd() tea.Msg {
+	return zoxideMsg(zoxideList())
+}
+
+func (m *model) mergeZoxide(paths []string) {
+	seen := map[string]bool{}
+	for _, it := range m.all {
+		seen[it.name] = true
+	}
+	for _, p := range paths {
 		base := sessionName(p)
 		if seen[base] {
 			continue
 		}
 		seen[base] = true
-		items = append(items, item{
+		m.all = append(m.all, item{
 			kind:  kindZoxide,
 			title: fmt.Sprintf("[Zoxide] %s", base),
 			desc:  p,
@@ -138,7 +190,6 @@ func collectItems(ctl *TmuxCtl, store *Store, create item) []item {
 			path:  p,
 		})
 	}
-	return items
 }
 
 func (m *model) refilter() {
@@ -184,10 +235,15 @@ func fuzzyMatch(query, text string) bool {
 	return true
 }
 
-func (m model) Init() tea.Cmd { return nil }
+func (m model) Init() tea.Cmd { return loadZoxideCmd }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case zoxideMsg:
+		m.mergeZoxide(msg)
+		m.refilter()
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// inline mode: keep list short like fzf --height
@@ -326,8 +382,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) reload() {
-	m.all = collectItems(m.ctl, m.store, m.create)
+	m.all = collectItems(m.ctl, m.store, m.create, true)
 	m.refilter()
+}
+
+// frameLines is fixed height of View — used to wipe residual UI after quit.
+func (m model) frameLines() int {
+	maxShow := m.maxShow
+	if maxShow <= 0 {
+		maxShow = 12
+	}
+	// prompt + header + list + status
+	return maxShow + 3
 }
 
 type editDoneMsg struct {
@@ -471,16 +537,20 @@ func (m model) View() string {
 	return b.String()
 }
 
-// clearInline erases a bubbletea inline frame left on the terminal (fzf-style).
-func clearInline(view string) {
-	n := strings.Count(view, "\n")
+// clearInline erases n lines of residual bubbletea inline UI (fzf-style).
+// Bubble Tea stop() only clears the current line — the rest stays in scrollback.
+func clearInline(n int) {
 	if n <= 0 {
 		return
 	}
-	// cursor sits on the blank line after the trailing newline of the last frame
 	var b strings.Builder
+	// cursor is at start of last rendered line after stop(); go up n-1 then erase n
 	for i := 0; i < n; i++ {
-		b.WriteString("\x1b[1A\x1b[2K") // up 1 + erase line
+		if i > 0 {
+			b.WriteString("\x1b[1A") // up
+		}
+		b.WriteString("\x1b[2K") // erase line
 	}
+	b.WriteByte('\r')
 	fmt.Fprint(os.Stdout, b.String())
 }

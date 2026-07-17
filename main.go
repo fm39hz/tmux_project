@@ -79,15 +79,18 @@ func run() error {
 	m := newModel(ctl, store, name, root)
 	p := tea.NewProgram(m) // inline like fzf — no alt screen
 	final, err := p.Run()
-	if err != nil {
-		return err
+	// always wipe residual frame (also on interrupt)
+	if fm, ok := final.(model); ok {
+		clearInline(fm.frameLines())
+		if err != nil {
+			return err
+		}
+		if fm.done.action != actionConnect {
+			return nil
+		}
+		return connectItem(ctl, store, fm.done.item)
 	}
-	fm := final.(model)
-	clearInline(fm.View()) // wipe residual frame from scrollback
-	if fm.done.action != actionConnect {
-		return nil
-	}
-	return connectItem(ctl, store, fm.done.item)
+	return err
 }
 
 func connectItem(ctl *TmuxCtl, store *Store, it item) error {
