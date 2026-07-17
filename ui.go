@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"unicode"
 
@@ -75,15 +76,13 @@ var (
 )
 
 func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
-	create := item{}
-	if shouldOfferCreate(createCwd) {
-		create = item{
-			kind:  kindCreate,
-			title: fmt.Sprintf("[Create] %s", createName),
-			desc:  createCwd,
-			name:  createName,
-			path:  createCwd,
-		}
+	// always offer Create at top — enter bakes sticky template immediately
+	create := item{
+		kind:  kindCreate,
+		title: fmt.Sprintf("[Create] %s", createName),
+		desc:  createCwd,
+		name:  createName,
+		path:  createCwd,
 	}
 	m := model{
 		base:    collectBase(ctl, store, create),
@@ -97,81 +96,89 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 	return m
 }
 
-// shouldOfferCreate: hide noise at $HOME — only offer when cwd is a real project tree.
-func shouldOfferCreate(cwd string) bool {
-	if cwd == "" {
-		return false
-	}
-	home, err := os.UserHomeDir()
-	if err == nil && (cwd == home || cwd == home+string(os.PathSeparator)) {
-		return false
-	}
-	// only if project markers found (not just walked to /)
-	root := findProjectRoot(cwd)
-	if home != "" && (root == home || root == "/") {
-		return false
-	}
-	return root != ""
-}
-
-// collectBase: Active → Create → Presets(last_used). No zoxide.
+// collectBase: Create → Active → Presets(last_used). No zoxide.
 func collectBase(ctl *TmuxCtl, store *Store, create item) []item {
-	seen := map[string]bool{}
+	seenName := map[string]bool{}
 	var items []item
 
-	if live, err := ctl.ListLive(); err == nil {
-		for _, s := range live {
-			seen[s.Name] = true
-			items = append(items, item{
-				kind:    kindActive,
-				title:   fmt.Sprintf("[Active] %s", s.Name),
-				desc:    fmt.Sprintf("%d windows", s.Windows),
-				name:    s.Name,
-				windows: s.Windows,
-			})
-		}
+	live, _ := ctl.ListLive()
+	liveNames := map[string]bool{}
+	for _, s := range live {
+		liveNames[s.Name] = true
 	}
 
-	// create after actives — only if name not already live/preset-bound
-	if create.name != "" && !seen[create.name] {
-		seen[create.name] = true
+	// Create first — sticky tmpl + enter without hunting list
+	if create.name != "" && !liveNames[create.name] {
+		seenName[create.name] = true
 		items = append(items, create)
 	}
 
-	if names, err := store.ListNames(); err == nil {
-		for _, n := range names {
-			if seen[n] {
+	for _, s := range live {
+		seenName[s.Name] = true
+		items = append(items, item{
+			kind:    kindActive,
+			title:   fmt.Sprintf("[Active] %s", s.Name),
+			desc:    fmt.Sprintf("%d windows", s.Windows),
+			name:    s.Name,
+			path:    s.Path,
+			windows: s.Windows,
+		})
+	}
+
+	if meta, err := store.ListMeta(); err == nil {
+		for _, m := range meta {
+			if seenName[m.Name] {
 				continue
 			}
-			seen[n] = true
+			seenName[m.Name] = true
 			items = append(items, item{
 				kind:  kindPreset,
-				title: fmt.Sprintf("[Preset] %s", n),
+				title: fmt.Sprintf("[Preset] %s", m.Name),
 				desc:  "saved layout",
-				name:  n,
+				name:  m.Name,
+				path:  m.Cwd,
 			})
 		}
 	}
 	return items
 }
 
-func seenNames(items []item) map[string]bool {
-	seen := map[string]bool{}
-	for _, it := range items {
-		seen[it.name] = true
+func normPath(p string) string {
+	if p == "" {
+		return ""
 	}
-	return seen
+	return filepath.Clean(p)
 }
 
-// zoxideItems: skip names already in base (active/preset/create).
-func zoxideItems(paths []string, seen map[string]bool) []item {
+// occupancy: names + paths already shown (active/preset/create).
+func occupancy(items []item) (names, paths map[string]bool) {
+	names = map[string]bool{}
+	paths = map[string]bool{}
+	for _, it := range items {
+		names[it.name] = true
+		if p := normPath(it.path); p != "" {
+			paths[p] = true
+		}
+	}
+	return names, paths
+}
+
+// zoxideItems: skip if session name OR path already covered.
+func zoxideItems(zpaths []string, names, paths map[string]bool) []item {
 	var out []item
-	for _, p := range paths {
+	for _, p := range zpaths {
+		np := normPath(p)
 		base := sessionName(p)
-		if base == "" || seen[base] {
+		if base == "" {
 			continue
 		}
-		seen[base] = true
+		if names[base] || (np != "" && paths[np]) {
+			continue
+		}
+		names[base] = true
+		if np != "" {
+			paths[np] = true
+		}
 		out = append(out, item{
 			kind:  kindZoxide,
 			title: fmt.Sprintf("[Zoxide] %s", base),
@@ -190,7 +197,8 @@ func loadZoxideCmd() tea.Msg {
 }
 
 func (m *model) mergeZoxide(paths []string) {
-	m.zox = zoxideItems(paths, seenNames(m.base))
+	names, pths := occupancy(m.base)
+	m.zox = zoxideItems(paths, names, pths)
 }
 
 func (m *model) pool() []item {
@@ -457,7 +465,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) reload() {
 	m.base = collectBase(m.ctl, m.store, m.create)
-	m.zox = zoxideItems(zoxideList(), seenNames(m.base))
+	names, pths := occupancy(m.base)
+	m.zox = zoxideItems(zoxideList(), names, pths)
 	m.refilter()
 }
 

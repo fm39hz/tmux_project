@@ -1,9 +1,6 @@
 package main
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
 func TestFuzzyUTF8(t *testing.T) {
 	if !fuzzyMatch("thư", "thư mục") {
@@ -123,21 +120,6 @@ func TestResolveCwd(t *testing.T) {
 	}
 	if resolveCwd("/a", "/abs") != "/abs" {
 		t.Fatal("abs")
-	}
-}
-
-func TestShouldOfferCreate(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip(err)
-	}
-	if shouldOfferCreate(home) {
-		t.Fatal("home should not offer create")
-	}
-	// this repo is a go module project
-	cwd, _ := os.Getwd()
-	if !shouldOfferCreate(cwd) {
-		t.Fatalf("project cwd should offer create: %s", cwd)
 	}
 }
 

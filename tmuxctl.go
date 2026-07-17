@@ -25,6 +25,7 @@ func newTmuxCtl() (*TmuxCtl, error) {
 type LiveSession struct {
 	Name    string
 	Windows int
+	Path    string // session_path — for dedup vs zoxide
 }
 
 func (c *TmuxCtl) ListLive() ([]LiveSession, error) {
@@ -34,7 +35,7 @@ func (c *TmuxCtl) ListLive() ([]LiveSession, error) {
 	}
 	out := make([]LiveSession, 0, len(ss))
 	for _, s := range ss {
-		out = append(out, LiveSession{Name: s.Name, Windows: s.Windows})
+		out = append(out, LiveSession{Name: s.Name, Windows: s.Windows, Path: s.Path})
 	}
 	return out, nil
 }

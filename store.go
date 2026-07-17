@@ -108,18 +108,36 @@ CREATE TABLE IF NOT EXISTS pane (
 }
 
 func (s *Store) ListNames() ([]string, error) {
-	rows, err := s.db.Query(`SELECT name FROM session ORDER BY last_used DESC, name`)
+	ms, err := s.ListMeta()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = m.Name
+	}
+	return out, nil
+}
+
+// PresetMeta is name+cwd for list/dedup (no full layout load).
+type PresetMeta struct {
+	Name string
+	Cwd  string
+}
+
+func (s *Store) ListMeta() ([]PresetMeta, error) {
+	rows, err := s.db.Query(`SELECT name, cwd FROM session ORDER BY last_used DESC, name`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []PresetMeta
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var m PresetMeta
+		if err := rows.Scan(&m.Name, &m.Cwd); err != nil {
 			return nil, err
 		}
-		out = append(out, name)
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }
