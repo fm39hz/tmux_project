@@ -27,7 +27,7 @@ go build -ldflags='-s -w' -o gotomux .
 
 ### Arch (AUR)
 
-Later — for now build from source as above.
+Later, for now build from source as above.
 
 ## Usage
 
@@ -67,6 +67,28 @@ Default template (auto-seeded):
 
 Sticky name: `templates/active`.  
 `ctrl-t` on a preset writes `templates/<name>.json` and sets sticky.
+
+### Ranking (filter)
+
+List order is **lexicographic**, not a single “magic score”. Better match tier always wins over kind or usage.
+
+**Typed query** (what you type):
+
+| Priority | Signal            | Notes                                                                        |
+| -------- | ----------------- | ---------------------------------------------------------------------------- |
+| 1        | **Match tier**    | token (exact / hyphen segment) → prefix → substring → fuzzy → path-only      |
+| 2        | **Kind**          | Active > Preset > Create > Zoxide _(within the same tier)_                   |
+| 3        | **Match detail**  | density, earlier hit, shorter leftover                                       |
+| 4        | **Frecency**      | opens with day-decay, minus kill penalty (`usage` table)                     |
+| 5        | **Co-occurrence** | sessions often opened while another is live (only if you’re already in tmux) |
+| 6        | **Path depth**    | shallower project roots preferred                                            |
+| 7        | **Stable index**  | original list order as last resort                                           |
+
+- Multi-word query: **AND** (every token must match; tier = worst token).
+- Name segments: `-` / `_` / `.` / space, plus CamelCase (`API.Configuration` → `configuration`).
+- Empty query: no filter, sort by kind, then frecency / co-occur / path (Create stays easy to hit when idle).
+
+Usage is learned quietly: each connect increments opens; `ctrl-x` records a kill. No extra UI.
 
 ### Preset JSON
 
