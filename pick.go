@@ -81,6 +81,9 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refilter()
 			}
 		default:
+			if isModifierChord(msg) {
+				return m, nil
+			}
 			if msg.Type == tea.KeyRunes {
 				for _, r := range msg.Runes {
 					if unicode.IsPrint(r) {

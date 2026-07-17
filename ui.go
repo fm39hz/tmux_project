@@ -222,7 +222,14 @@ func (m *model) mergeZoxide(paths []string) {
 
 func (m *model) pool() []item {
 	q := strings.TrimSpace(m.query)
-	out := append([]item(nil), m.base...)
+	var out []item
+	for _, it := range m.base {
+		// Create only when query empty — sticky-tmpl enter without filter noise
+		if it.kind == kindCreate && q != "" {
+			continue
+		}
+		out = append(out, it)
+	}
 	if len(m.zox) == 0 {
 		return out
 	}
@@ -256,6 +263,12 @@ func (m *model) refilter() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
+}
+
+// refilterFromQuery: user edited filter → jump to first match.
+func (m *model) refilterFromQuery() {
+	m.refilter()
+	m.cursor = 0
 }
 
 func (m *model) totalCount() int {
@@ -378,12 +391,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "ctrl+u":
 			m.query = ""
-			m.refilter()
+			m.refilterFromQuery()
 			return m, nil
 
 		case "ctrl+w":
 			m.query = trimLastWord(m.query)
-			m.refilter()
+			m.refilterFromQuery()
 			return m, nil
 
 		case "backspace":
@@ -391,7 +404,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// drop last rune
 				r := []rune(m.query)
 				m.query = string(r[:len(r)-1])
-				m.refilter()
+				m.refilterFromQuery()
 			}
 			return m, nil
 
@@ -457,14 +470,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		default:
-			// printable → append to query (combobox always typing)
+			// unmapped ctrl/alt chords: ignore (don't leak into query)
+			if isModifierChord(msg) {
+				return m, nil
+			}
+			// plain printable → filter
 			if msg.Type == tea.KeyRunes {
 				for _, r := range msg.Runes {
 					if unicode.IsPrint(r) {
 						m.query += string(r)
 					}
 				}
-				m.refilter()
+				m.refilterFromQuery()
 			}
 		}
 
@@ -646,6 +663,23 @@ func (m model) View() string {
 	}
 	b.WriteByte('\n')
 	return b.String()
+}
+
+// isModifierChord: ctrl/alt/meta combo that is not plain text.
+// Prevents ctrl+l etc. from inserting "l" into the filter.
+func isModifierChord(msg tea.KeyMsg) bool {
+	if msg.Alt {
+		return true
+	}
+	s := msg.String()
+	if strings.HasPrefix(s, "ctrl+") || strings.HasPrefix(s, "alt+") ||
+		strings.HasPrefix(s, "shift+ctrl+") || strings.HasPrefix(s, "ctrl+alt+") {
+		return true
+	}
+	if strings.Contains(s, "+") && msg.Type != tea.KeyRunes {
+		return true
+	}
+	return false
 }
 
 // clearInline erases n lines of residual bubbletea inline UI (fzf-style).
