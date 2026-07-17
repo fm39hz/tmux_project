@@ -62,6 +62,7 @@ func openStore() (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	setZoxStore(s)
 	return s, nil
 }
 
@@ -228,6 +229,21 @@ CREATE TABLE IF NOT EXISTS pair (
   n        INTEGER NOT NULL DEFAULT 0,
   last     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (a, b)
+);`); err != nil {
+		return err
+	}
+	if _, err = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS zox_meta (
+  id      INTEGER PRIMARY KEY CHECK (id = 1),
+  updated INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS zox_item (
+  ord     INTEGER PRIMARY KEY,
+  name    TEXT NOT NULL,
+  path    TEXT NOT NULL,
+  title   TEXT NOT NULL DEFAULT '',
+  desc    TEXT NOT NULL DEFAULT '',
+  recency INTEGER NOT NULL DEFAULT 0
 );`); err != nil {
 		return err
 	}
@@ -578,6 +594,72 @@ SELECT a, b, n, last FROM pair WHERE a = ? OR b = ?
 		out[other] = n * 1000 / (1 + age)
 	}
 	return out, rows.Err()
+}
+
+// LoadZoxItems returns cached zoxide picker rows and cache age.
+func (s *Store) LoadZoxItems() (items []item, updated int64, ok bool) {
+	var upd int64
+	err := s.db.QueryRow(`SELECT updated FROM zox_meta WHERE id = 1`).Scan(&upd)
+	if err != nil {
+		return nil, 0, false
+	}
+	rows, err := s.db.Query(`SELECT name, path, title, desc, recency FROM zox_item ORDER BY ord`)
+	if err != nil {
+		return nil, 0, false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var it item
+		var title, desc string
+		if err := rows.Scan(&it.name, &it.path, &title, &desc, &it.recency); err != nil {
+			return nil, 0, false
+		}
+		if it.name == "" {
+			continue
+		}
+		it.kind = kindZoxide
+		it.title = title
+		if it.title == "" {
+			it.title = "[Zoxide] " + it.name
+		}
+		it.desc = desc
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil || len(items) == 0 {
+		return nil, 0, false
+	}
+	return items, upd, true
+}
+
+// SaveZoxItems replaces the zoxide item cache in one transaction.
+func (s *Store) SaveZoxItems(items []item) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM zox_item`); err != nil {
+		return err
+	}
+	now := time.Now().Unix()
+	if _, err := tx.Exec(`
+INSERT INTO zox_meta(id, updated) VALUES(1, ?)
+ON CONFLICT(id) DO UPDATE SET updated = excluded.updated
+`, now); err != nil {
+		return err
+	}
+	for i, it := range items {
+		if it.name == "" {
+			continue
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO zox_item(ord, name, path, title, desc, recency) VALUES(?,?,?,?,?,?)`,
+			i, it.name, it.path, it.title, it.desc, it.recency,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) String() string {

@@ -1,104 +1,38 @@
 package main
 
 import (
-	"encoding/json"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 )
 
-// Zoxide is the slow external path. Strategy for "instant" open:
+// Zoxide list is slow (~50–150ms). Cache pre-built items in SQLite (state.db)
+// so open paints Create/Active/Zoxide together without extra files.
 //
-//  1. Persist pre-built picker items to zoxide.items.json (exported DTO).
-//  2. newModel loads that file synchronously — no walk, no zoxide spawn.
-//  3. Background tea.Cmd refreshes when TTL expired.
+//  1. loadZoxItemsSync reads DB (or memory).
+//  2. Background rebuildZoxItems runs zoxide + projectSession, SaveZoxItems.
+//  3. Cap paths before projectSession.
 
 const (
 	zoxCacheTTL  = 60 * time.Second
 	zoxPathLimit = 120
 )
 
-// zoxRow is JSON-safe (item fields are unexported).
-type zoxRow struct {
-	Kind    int    `json:"kind"`
-	Title   string `json:"title"`
-	Desc    string `json:"desc"`
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	Recency int64  `json:"recency"`
-}
-
-type zoxItemCache struct {
-	Updated int64    `json:"updated"`
-	Items   []zoxRow `json:"items"`
-}
-
 var (
 	zoxItemMem   []item
 	zoxItemMemAt time.Time
 	zoxItemMu    sync.Mutex
+	// set by openStore path so cache uses same DB as presets
+	zoxStore *Store
 )
 
-func zoxItemCachePath() string {
-	dir, err := dataDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "zoxide.items.json")
-}
+func setZoxStore(s *Store) { zoxStore = s }
 
-func zoxListCachePath() string {
-	dir, err := dataDir()
-	if err != nil {
-		return ""
+func capZox(paths []string) []string {
+	if len(paths) > zoxPathLimit {
+		return paths[:zoxPathLimit]
 	}
-	return filepath.Join(dir, "zoxide.list")
-}
-
-func itemsToRows(items []item) []zoxRow {
-	out := make([]zoxRow, 0, len(items))
-	for _, it := range items {
-		if it.name == "" {
-			continue
-		}
-		out = append(out, zoxRow{
-			Kind:    int(it.kind),
-			Title:   it.title,
-			Desc:    it.desc,
-			Name:    it.name,
-			Path:    it.path,
-			Recency: it.recency,
-		})
-	}
-	return out
-}
-
-func rowsToItems(rows []zoxRow) []item {
-	out := make([]item, 0, len(rows))
-	for _, r := range rows {
-		if r.Name == "" {
-			continue
-		}
-		k := kind(r.Kind)
-		if k != kindZoxide {
-			k = kindZoxide
-		}
-		title := r.Title
-		if title == "" {
-			title = "[Zoxide] " + r.Name
-		}
-		out = append(out, item{
-			kind:    k,
-			title:   title,
-			desc:    r.Desc,
-			name:    r.Name,
-			path:    r.Path,
-			recency: r.Recency,
-		})
-	}
-	return out
+	return paths
 }
 
 func loadZoxItemsSync() ([]item, time.Duration, bool) {
@@ -111,27 +45,16 @@ func loadZoxItemsSync() ([]item, time.Duration, bool) {
 	}
 	zoxItemMu.Unlock()
 
-	p := zoxItemCachePath()
-	if p == "" {
+	if zoxStore == nil {
 		return nil, 0, false
 	}
-	b, err := os.ReadFile(p)
-	if err != nil || len(b) == 0 {
-		return nil, 0, false
-	}
-	var c zoxItemCache
-	if err := json.Unmarshal(b, &c); err != nil || len(c.Items) == 0 {
-		return nil, 0, false
-	}
-	items := rowsToItems(c.Items)
-	if len(items) == 0 {
-		// corrupt / old empty-object cache — delete so we rebuild
-		_ = os.Remove(p)
+	items, updated, ok := zoxStore.LoadZoxItems()
+	if !ok {
 		return nil, 0, false
 	}
 	age := time.Duration(0)
-	if c.Updated > 0 {
-		age = time.Since(time.Unix(c.Updated, 0))
+	if updated > 0 {
+		age = time.Since(time.Unix(updated, 0))
 		if age < 0 {
 			age = 0
 		}
@@ -144,37 +67,20 @@ func loadZoxItemsSync() ([]item, time.Duration, bool) {
 }
 
 func saveZoxItems(items []item) {
-	p := zoxItemCachePath()
-	if p == "" {
+	if len(items) == 0 {
 		return
 	}
-	rows := itemsToRows(items)
-	if len(rows) == 0 {
-		return
+	if zoxStore != nil {
+		_ = zoxStore.SaveZoxItems(items)
 	}
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	c := zoxItemCache{Updated: time.Now().Unix(), Items: rows}
-	b, err := json.Marshal(c)
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(p, b, 0o644)
-	parsed := rowsToItems(rows)
 	zoxItemMu.Lock()
-	zoxItemMem = parsed
+	zoxItemMem = items
 	zoxItemMemAt = time.Now()
 	zoxItemMu.Unlock()
 }
 
 func zoxItemsStale(age time.Duration, ok bool) bool {
 	return !ok || age >= zoxCacheTTL
-}
-
-func capZox(paths []string) []string {
-	if len(paths) > zoxPathLimit {
-		return paths[:zoxPathLimit]
-	}
-	return paths
 }
 
 func zoxideQueryFresh() []string {
@@ -186,17 +92,6 @@ func zoxideQueryFresh() []string {
 	for _, line := range splitLines(string(out)) {
 		if line != "" {
 			paths = append(paths, line)
-		}
-	}
-	if len(paths) > 0 {
-		if p := zoxListCachePath(); p != "" {
-			_ = os.MkdirAll(filepath.Dir(p), 0o755)
-			var b []byte
-			for _, line := range paths {
-				b = append(b, line...)
-				b = append(b, '\n')
-			}
-			_ = os.WriteFile(p, b, 0o644)
 		}
 	}
 	return paths
@@ -237,7 +132,6 @@ func trimSpace(s string) string {
 	return s
 }
 
-// rebuildZoxItems: spawn zoxide + projectSession — tea.Cmd / background only.
 func rebuildZoxItems() []item {
 	paths := zoxideQueryFresh()
 	if len(paths) == 0 {

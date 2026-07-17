@@ -112,7 +112,7 @@ Usage is learned quietly: each connect increments opens; `ctrl-x` records a kill
 
 ```
 $XDG_DATA_HOME/gotomux/      # default ~/.local/share/gotomux
-  state.db
+  state.db                   # presets + usage + zoxide item cache
   templates/
     default.json
     active
