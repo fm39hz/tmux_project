@@ -355,6 +355,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status = err.Error()
 						return m, nil
 					}
+					// wipe inline frame before ReleaseTerminal — else editor return duplicates UI
+					clearInline(m.frameLines())
 					return m, cmd
 				}
 			}
@@ -387,6 +389,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case editDoneMsg:
+		// editor left junk below; wipe so repaint is single frame
+		clearInline(m.frameLines())
 		if msg.err != nil {
 			m.status = msg.err.Error()
 		} else {
