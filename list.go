@@ -22,6 +22,10 @@ type item struct {
 	name    string
 	path    string
 	windows int
+	// recency: higher = more recent / more frequent.
+	// Preset: last_used unix; Zoxide: inverted list index (zoxide score order);
+	// Active/Create: 0 (kind already prefers them).
+	recency int64
 }
 
 const zoxCap = 40 // unfiltered list shows top-N zoxide only
@@ -37,7 +41,6 @@ func collectBase(ctl *TmuxCtl, store *Store, create item) []item {
 		liveNames[s.Name] = true
 	}
 
-	// Create first — sticky tmpl + enter without hunting list
 	if create.name != "" && !liveNames[create.name] {
 		seenName[create.name] = true
 		items = append(items, create)
@@ -62,11 +65,12 @@ func collectBase(ctl *TmuxCtl, store *Store, create item) []item {
 			}
 			seenName[m.Name] = true
 			items = append(items, item{
-				kind:  kindPreset,
-				title: fmt.Sprintf("[Preset] %s", m.Name),
-				desc:  "saved layout",
-				name:  m.Name,
-				path:  m.Cwd,
+				kind:    kindPreset,
+				title:   fmt.Sprintf("[Preset] %s", m.Name),
+				desc:    "saved layout",
+				name:    m.Name,
+				path:    m.Cwd,
+				recency: m.LastUsed,
 			})
 		}
 	}
@@ -80,7 +84,6 @@ func normPath(p string) string {
 	return filepath.Clean(p)
 }
 
-// occupancy: names + paths already shown (active/preset/create).
 func occupancy(items []item) (names, paths map[string]bool) {
 	names = map[string]bool{}
 	paths = map[string]bool{}
@@ -94,9 +97,11 @@ func occupancy(items []item) (names, paths map[string]bool) {
 }
 
 // zoxideItems: skip if session name OR path already covered.
+// recency: earlier in zoxide list (higher frecency) → larger recency.
 func zoxideItems(zpaths []string, names, paths map[string]bool) []item {
 	var out []item
-	for _, p := range zpaths {
+	n := len(zpaths)
+	for i, p := range zpaths {
 		np := normPath(p)
 		base := sessionName(p)
 		if base == "" {
@@ -110,17 +115,18 @@ func zoxideItems(zpaths []string, names, paths map[string]bool) []item {
 			paths[np] = true
 		}
 		out = append(out, item{
-			kind:  kindZoxide,
-			title: fmt.Sprintf("[Zoxide] %s", base),
-			desc:  p,
-			name:  base,
-			path:  p,
+			kind:    kindZoxide,
+			title:   fmt.Sprintf("[Zoxide] %s", base),
+			desc:    p,
+			name:    base,
+			path:    p,
+			recency: int64(n - i), // first path = highest
 		})
 	}
 	return out
 }
 
-// rankItems sorts pool by rankKey (tier > detail > kind > path depth > idx).
+// rankItems sorts pool by rankKey.
 func rankItems(q string, pool []item) []item {
 	type scored struct {
 		it item

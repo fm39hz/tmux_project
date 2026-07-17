@@ -6,26 +6,29 @@ import (
 	"unicode"
 )
 
-// Ranking: lexicographic rankKey — not a single ad-hoc sum.
+// Ranking: lexicographic rankKey (not a single ad-hoc sum).
 //
-//	tier   — match quality band only (lower = better). Kind never outranks a better tier.
-//	kind   — domain preference within the same tier (higher = better).
-//	detail — within-tier match quality (higher = better).
-//	pathQ  — prefer shallower paths (higher = better): -depth.
-//	idx    — stable input order.
+//	tier    — match quality band (lower = better). Kind never outranks a better tier.
+//	kind    — domain preference within tier (higher = better).
+//	detail  — within-tier match quality (higher = better).
+//	recency — last_used / zoxide frecency (higher = better).
+//	pathQ   — shallower path (higher = better): -depth.
+//	idx     — stable input order.
 //
-// Idle (empty q): tier=0 for all; sort by kind, then pathQ, then idx.
+// Idle (empty q): tier=0; sort kind → recency → pathQ → idx.
 //
 // Typed tiers:
 //
-//	0 token   — full name/basename == q, OR a hyphen segment == q
-//	1 prefix  — name/basename/segment HasPrefix(q)
-//	2 substr  — contiguous mid-string on those labels
-//	3 fuzzy   — rune subsequence on name/basename
-//	4 path    — match only via path segments (weakest)
+//	0 token  — full name/basename == q, OR a name segment == q
+//	1 prefix — label/segment HasPrefix(q)
+//	2 substr — mid-string contains q
+//	3 fuzzy  — rune subsequence
+//	4 path   — path segments only
 //
-// Product: Active "kho-cong" (token via segment) ranks above deep Zoxide "kho"
-// (token via full name) because same tier and kind(Active) > kind(Zoxide).
+// Multi-token query (whitespace): AND — every token must match; tier = worst token tier;
+// detail = sum of per-token details.
+//
+// Segments: split on - _ . space, plus CamelCase / acronym boundaries.
 
 const (
 	tierToken  int8 = 0
@@ -37,11 +40,10 @@ const (
 )
 
 const (
-	detailBase    int32 = 1_000_000
-	detailDensity int32 = 10_000
-	detailPosUnit int32 = 100
-	detailLenUnit int32 = 1
-	// Within token tier: full-label exact slightly above segment exact.
+	detailBase      int32 = 1_000_000
+	detailDensity   int32 = 10_000
+	detailPosUnit   int32 = 100
+	detailLenUnit   int32 = 1
 	detailFullExact int32 = 5_000
 	detailSegExact  int32 = 2_000
 	detailFuzzyRun  int32 = 50
@@ -50,14 +52,14 @@ const (
 )
 
 type rankKey struct {
-	tier   int8
-	kind   int8
-	detail int32
-	pathQ  int8
-	idx    int
+	tier    int8
+	kind    int8
+	detail  int32
+	recency int64
+	pathQ   int8
+	idx     int
 }
 
-// less reports whether a should sort before b (best first).
 func (a rankKey) less(b rankKey) bool {
 	if a.tier != b.tier {
 		return a.tier < b.tier
@@ -67,6 +69,9 @@ func (a rankKey) less(b rankKey) bool {
 	}
 	if a.detail != b.detail {
 		return a.detail > b.detail
+	}
+	if a.recency != b.recency {
+		return a.recency > b.recency
 	}
 	if a.pathQ != b.pathQ {
 		return a.pathQ > b.pathQ
@@ -122,6 +127,13 @@ func betterHit(a, b fieldHit) fieldHit {
 	return b
 }
 
+func worseTier(a, b int8) int8 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func densityDetail(q, target string) int32 {
 	if len(target) == 0 {
 		return 0
@@ -129,22 +141,75 @@ func densityDetail(q, target string) int32 {
 	return detailDensity * int32(len(q)) / int32(len(target))
 }
 
+// camelSplit breaks CamelCase and acronyms: "APIConfiguration" → API, Configuration.
+func camelSplit(s string) []string {
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return nil
+	}
+	var segs []string
+	start := 0
+	for i := 1; i < len(runes); i++ {
+		r, prev := runes[i], runes[i-1]
+		br := false
+		if unicode.IsUpper(r) {
+			if unicode.IsLower(prev) {
+				br = true
+			} else if i+1 < len(runes) && unicode.IsLower(runes[i+1]) && unicode.IsUpper(prev) {
+				// XMLParser → break before P
+				br = true
+			}
+		}
+		if br {
+			if start < i {
+				segs = append(segs, string(runes[start:i]))
+			}
+			start = i
+		}
+	}
+	if start < len(runes) {
+		segs = append(segs, string(runes[start:]))
+	}
+	return segs
+}
+
+// labelParts: whole lowercased label + delimiter segments + camel segments.
 func labelParts(label string) (whole string, segs []string) {
-	whole = strings.ToLower(strings.TrimSpace(label))
+	raw := strings.TrimSpace(label)
+	whole = strings.ToLower(raw)
 	if whole == "" {
 		return "", nil
 	}
-	for _, seg := range strings.FieldsFunc(whole, func(r rune) bool {
-		return r == '-' || r == '_' || r == '.' || r == ' '
+	seen := map[string]bool{whole: true}
+	add := func(s string) {
+		s = strings.ToLower(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		segs = append(segs, s)
+	}
+	// punctuation / path-ish split (on original for camel before lower)
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '-' || r == '_' || r == '.' || r == ' ' || r == '/'
 	}) {
-		if seg != "" && seg != whole {
-			segs = append(segs, seg)
+		if part == "" {
+			continue
+		}
+		add(part)
+		for _, c := range camelSplit(part) {
+			add(c)
+		}
+	}
+	// also camel-split whole raw if no delimiters
+	if !strings.ContainsAny(raw, "-_. /") {
+		for _, c := range camelSplit(raw) {
+			add(c)
 		}
 	}
 	return whole, segs
 }
 
-// matchOnLabel: best hit on session name or folder basename (never path-only tier).
 func matchOnLabel(q, label string) (fieldHit, bool) {
 	whole, segs := labelParts(label)
 	if whole == "" {
@@ -160,9 +225,7 @@ func matchOnLabel(q, label string) (fieldHit, bool) {
 		if text == q {
 			d := detailBase + densityDetail(q, text)
 			if segment {
-				d += detailSegExact
-				// slight preference for longer structured parent labels
-				d += int32(len(whole))
+				d += detailSegExact + int32(len(whole))
 			} else {
 				d += detailFullExact
 			}
@@ -196,7 +259,6 @@ func matchOnLabel(q, label string) (fieldHit, bool) {
 	return best, ok
 }
 
-// matchOnPath: segments of path only → tierPath.
 func matchOnPath(q, path string) (fieldHit, bool) {
 	if path == "" {
 		return fieldHit{tierNone, 0}, false
@@ -211,7 +273,6 @@ func matchOnPath(q, path string) (fieldHit, bool) {
 		if !yes {
 			continue
 		}
-		// collapse whatever label tier into path-only band; keep detail
 		best = betterHit(best, fieldHit{tierPath, h.detail})
 		ok = true
 	}
@@ -270,25 +331,16 @@ func isBoundary(r rune) bool {
 	return r == '/' || r == '-' || r == '_' || r == '.' || r == ' ' || unicode.IsSpace(r)
 }
 
-// rankOf builds the sort key. ok=false → drop from results.
-func rankOf(q string, it item, idx int) (rankKey, bool) {
-	kr := kindRank(it.kind)
-	pq := pathQuality(it.path)
-	q = strings.ToLower(strings.TrimSpace(q))
-
-	if q == "" {
-		return rankKey{tier: 0, kind: kr, detail: 0, pathQ: pq, idx: idx}, true
-	}
-
+// bestHit for a single token against name / basename / path.
+func bestHitToken(token string, it item) (fieldHit, bool) {
 	best := fieldHit{tierNone, 0}
 	any := false
-
-	if h, ok := matchOnLabel(q, it.name); ok {
+	if h, ok := matchOnLabel(token, it.name); ok {
 		best, any = h, true
 	}
 	base := filepath.Base(it.path)
 	if base != "" && !strings.EqualFold(base, it.name) {
-		if h, ok := matchOnLabel(q, base); ok {
+		if h, ok := matchOnLabel(token, base); ok {
 			if !any {
 				best, any = h, true
 			} else {
@@ -296,57 +348,90 @@ func rankOf(q string, it item, idx int) (rankKey, bool) {
 			}
 		}
 	}
-
-	if h, ok := matchOnPath(q, it.path); ok {
+	if h, ok := matchOnPath(token, it.path); ok {
 		if !any {
-			// pure path hit
 			best, any = h, true
 		}
-		// if name already matched, path only affects pathQ — do not worsen/improve tier
+		// name already matched: path does not change tier
 		_ = h
 	}
+	return best, any
+}
 
-	if !any || best.tier == tierNone {
-		return rankKey{}, false
+// rankOf builds the sort key. ok=false → drop.
+func rankOf(q string, it item, idx int) (rankKey, bool) {
+	kr := kindRank(it.kind)
+	pq := pathQuality(it.path)
+	q = strings.TrimSpace(q)
+
+	if q == "" {
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, pathQ: pq, idx: idx}, true
 	}
+
+	tokens := strings.Fields(strings.ToLower(q))
+	if len(tokens) == 0 {
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, pathQ: pq, idx: idx}, true
+	}
+
+	// Multi-token AND: every token must match; tier = worst; detail = sum.
+	var (
+		worst  int8 = tierToken
+		detail int32
+	)
+	for i, tok := range tokens {
+		h, ok := bestHitToken(tok, it)
+		if !ok || h.tier == tierNone {
+			return rankKey{}, false
+		}
+		if i == 0 {
+			worst = h.tier
+		} else {
+			worst = worseTier(worst, h.tier)
+		}
+		detail += h.detail
+	}
+
 	return rankKey{
-		tier:   best.tier,
-		kind:   kr,
-		detail: best.detail,
-		pathQ:  pq,
-		idx:    idx,
+		tier:    worst,
+		kind:    kr,
+		detail:  detail,
+		recency: it.recency,
+		pathQ:   pq,
+		idx:     idx,
 	}, true
 }
 
-// scoreItem: debug/total-order int (higher = better). Sorting uses rankKey.less.
+// scoreItem: debug int (higher = better). Production sort uses rankKey.less.
 func scoreItem(q string, it item) int {
 	k, ok := rankOf(q, it, 0)
 	if !ok {
 		return -1
 	}
+	// coarse encoding for tests comparing order loosely
 	return int(127-k.tier)*100_000_000 +
 		int(k.kind)*1_000_000 +
-		int(k.detail) +
+		int(k.detail%1_000_000) +
+		int(k.recency%10_000)*10 +
 		int(k.pathQ+127)
 }
 
-// fuzzyMatch: any match (pick.go).
 func fuzzyMatch(query, text string) bool {
 	if query == "" {
 		return true
 	}
-	query = strings.ToLower(query)
-	text = strings.ToLower(text)
-	if _, ok := matchOnLabel(query, text); ok {
-		return true
+	// each token must match text as a label or path
+	for _, tok := range strings.Fields(strings.ToLower(query)) {
+		if _, ok := matchOnLabel(tok, text); ok {
+			continue
+		}
+		if _, ok := matchOnPath(tok, text); ok {
+			continue
+		}
+		return false
 	}
-	if _, ok := matchOnPath(query, text); ok {
-		return true
-	}
-	return false
+	return true
 }
 
-// scoreMatch: legacy helper for tests — higher = better match on a single label.
 func scoreMatch(query, text string) int {
 	if query == "" {
 		return 0

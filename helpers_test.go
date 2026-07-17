@@ -376,3 +376,72 @@ func TestRankKeyOrderDoc(t *testing.T) {
 		t.Fatalf("kind Active should sort before Zoxide at same tier: a=%+v z=%+v", ka, kz)
 	}
 }
+
+func TestRankMultiTokenAND(t *testing.T) {
+	// "kho cong" matches kho-cong (segments); pure "kho" leaf without cong ranks worse or fails cong token
+	q := "kho cong"
+	target := item{kind: kindActive, name: "kho-cong", path: "/w/Tecapro/kho-cong"}
+	other := item{kind: kindZoxide, name: "kho", path: "/w/other/deploy/kho"}
+	got := rankItems(q, []item{other, target})
+	if len(got) == 0 {
+		t.Fatal("expected kho-cong to match both tokens")
+	}
+	if got[0].name != "kho-cong" {
+		t.Fatalf("want kho-cong first, got %s", got[0].name)
+	}
+	// other may be filtered (no "cong")
+	for _, it := range got {
+		if it.name == "kho" {
+			t.Fatal("leaf kho should not match token cong")
+		}
+	}
+}
+
+func TestRankCamelCaseSegment(t *testing.T) {
+	q := "config"
+	// API.Configuration → configuration segment via . and camel
+	it := item{kind: kindZoxide, name: "api-configuration", path: "/x/NKT.APIs/API.Configuration"}
+	k, ok := rankOf(q, it, 0)
+	if !ok {
+		t.Fatal("expected match on Configuration segment")
+	}
+	if k.tier > tierPrefix {
+		// prefix of "configuration" is fine (tier prefix or token if exact)
+		t.Fatalf("tier too weak: %+v", k)
+	}
+}
+
+func TestRankRecencyWithinSameTier(t *testing.T) {
+	// same name match tier+kind: higher recency wins
+	q := "demo"
+	newer := item{kind: kindPreset, name: "demo", path: "/a", recency: 200}
+	older := item{kind: kindPreset, name: "demo-old", path: "/b", recency: 100}
+	// demo exact vs demo-old prefix — different tiers. Use two exact-ish presets via segment.
+	// Better: two zoxide same tier prefix with different recency
+	a := item{kind: kindZoxide, name: "demoapp", path: "/z/demoapp", recency: 10}
+	b := item{kind: kindZoxide, name: "demokit", path: "/z/demokit", recency: 50}
+	got := rankItems(q, []item{a, b})
+	if len(got) < 2 {
+		t.Fatalf("want 2, got %d", len(got))
+	}
+	// both prefix tier; higher recency first
+	if got[0].name != "demokit" {
+		t.Fatalf("want demokit (recency 50) first, got %s keys %v %v",
+			got[0].name, mustKey(q, a), mustKey(q, b))
+	}
+	_ = newer
+	_ = older
+}
+
+func TestRankRecencyPresetLastUsed(t *testing.T) {
+	// idle list: among presets kind equal — higher last_used first when same kind block
+	// idle uses kind first so Create/Active still on top; among two presets:
+	pool := []item{
+		{kind: kindPreset, name: "old", recency: 1},
+		{kind: kindPreset, name: "new", recency: 99},
+	}
+	got := rankItems("", pool)
+	if got[0].name != "new" {
+		t.Fatalf("idle recency: want new first, got %s", got[0].name)
+	}
+}

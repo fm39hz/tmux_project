@@ -119,14 +119,15 @@ func (s *Store) ListNames() ([]string, error) {
 	return out, nil
 }
 
-// PresetMeta is name+cwd for list/dedup (no full layout load).
+// PresetMeta is name+cwd+recency for list/dedup/rank (no full layout load).
 type PresetMeta struct {
-	Name string
-	Cwd  string
+	Name     string
+	Cwd      string
+	LastUsed int64
 }
 
 func (s *Store) ListMeta() ([]PresetMeta, error) {
-	rows, err := s.db.Query(`SELECT name, cwd FROM session ORDER BY last_used DESC, name`)
+	rows, err := s.db.Query(`SELECT name, cwd, last_used FROM session ORDER BY last_used DESC, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +135,7 @@ func (s *Store) ListMeta() ([]PresetMeta, error) {
 	var out []PresetMeta
 	for rows.Next() {
 		var m PresetMeta
-		if err := rows.Scan(&m.Name, &m.Cwd); err != nil {
+		if err := rows.Scan(&m.Name, &m.Cwd, &m.LastUsed); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
