@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,10 +60,11 @@ type model struct {
 	width    int
 	height   int
 	maxShow  int
-	help     bool   // ? toggles full key help
-	tmpl     string // sticky template name (default|…)
-	editPath string // temp file while $EDITOR open
-	editOld  string // preset name before edit (rename detect)
+	help     bool      // ? toggles full key help
+	tmpl     string    // sticky template name (default|…)
+	started  time.Time // swallow Alt-release ESC right after open (display-popup)
+	editPath string    // temp file while $EDITOR open
+	editOld  string    // preset name before edit (rename detect)
 }
 
 const zoxCap = 40 // unfiltered list shows top-N zoxide only
@@ -111,6 +113,7 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		create:  create,
 		maxShow: 12,
 		tmpl:    readActiveTemplateName(),
+		started: time.Now(),
 	}
 	m.refilter()
 	return m
@@ -521,7 +524,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "esc":
+		case "ctrl+c":
+			m.done = result{action: actionQuit}
+			return m, tea.Quit
+
+		case "esc":
+			// display-popup + bind -n M-* : releasing Alt often injects ESC into the
+			// new pane and would quit instantly. Ignore brief false ESC after open.
+			if time.Since(m.started) < 500*time.Millisecond {
+				return m, nil
+			}
 			m.done = result{action: actionQuit}
 			return m, tea.Quit
 
