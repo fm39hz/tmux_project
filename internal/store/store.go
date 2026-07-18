@@ -457,6 +457,94 @@ func (s *Store) Delete(name string) error {
 	return err
 }
 
+// RebindName moves ranking telemetry old→new after preset rename.
+// usage rows merge (opens/kills sum, last_* max); pair endpoints rewrite.
+// Best-effort for ranking only — never blocks Save.
+func (s *Store) RebindName(old, newName string) error {
+	old, newName = strings.TrimSpace(old), strings.TrimSpace(newName)
+	if old == "" || newName == "" || old == newName {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// usage: merge into new, drop old
+	var oOpens, oKills, oLastOpen, oLastKill int64
+	err = tx.QueryRow(
+		`SELECT opens, kills, last_open, last_kill FROM usage WHERE name = ?`, old,
+	).Scan(&oOpens, &oKills, &oLastOpen, &oLastKill)
+	if err == nil {
+		_, err = tx.Exec(`
+INSERT INTO usage(name, opens, kills, last_open, last_kill) VALUES(?, ?, ?, ?, ?)
+ON CONFLICT(name) DO UPDATE SET
+  opens = opens + excluded.opens,
+  kills = kills + excluded.kills,
+  last_open = MAX(last_open, excluded.last_open),
+  last_kill = MAX(last_kill, excluded.last_kill)
+`, newName, oOpens, oKills, oLastOpen, oLastKill)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`DELETE FROM usage WHERE name = ?`, old); err != nil {
+			return err
+		}
+	}
+
+	// pair: rewrite endpoints; undirected canonical a < b
+	rows, err := tx.Query(`SELECT a, b, n, last FROM pair WHERE a = ? OR b = ?`, old, old)
+	if err != nil {
+		return err
+	}
+	type pr struct {
+		a, b       string
+		n, last    int64
+	}
+	var found []pr
+	for rows.Next() {
+		var r pr
+		if err := rows.Scan(&r.a, &r.b, &r.n, &r.last); err != nil {
+			rows.Close()
+			return err
+		}
+		found = append(found, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range found {
+		if _, err := tx.Exec(`DELETE FROM pair WHERE a = ? AND b = ?`, r.a, r.b); err != nil {
+			return err
+		}
+		a, b := r.a, r.b
+		if a == old {
+			a = newName
+		}
+		if b == old {
+			b = newName
+		}
+		if a == b {
+			continue // self-pair after rename — drop
+		}
+		if a > b {
+			a, b = b, a
+		}
+		_, err = tx.Exec(`
+INSERT INTO pair(a, b, n, last) VALUES(?, ?, ?, ?)
+ON CONFLICT(a, b) DO UPDATE SET
+  n = n + excluded.n,
+  last = MAX(last, excluded.last)
+`, a, b, r.n, r.last)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Usage is per-session connect/kill stats for frecency ranking.
 type Usage struct {
 	Name     string

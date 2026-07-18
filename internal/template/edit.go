@@ -213,6 +213,7 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 	}
 	if np.Name != oldName {
 		_ = st.Delete(oldName)
+		_ = st.RebindName(oldName, np.Name) // ranking telemetry follows rename
 	}
 	outDir, _ := store.DataDir()
 	fmt.Println("saved", np.Name, "→", filepath.Join(outDir, "state.db"))

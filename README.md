@@ -39,10 +39,10 @@ bind-key -n C-f run-shell "$HOME/go/bin/gotomux -f >/dev/null 2>&1; tmux display
 CLI:
 
 ```bash
-gotomux              # picker
-gotomux -f           # freeze
-gotomux -e [name]    # edit preset in $EDITOR
-gotomux -h
+gotomux             # interactive picker
+gotomux -f [name]   # freeze session (arg, else current, else pick)
+gotomux -e [name]   # edit preset in $EDITOR
+gotomux -h          # help
 ```
 
 ### Keys

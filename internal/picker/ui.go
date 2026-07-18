@@ -294,17 +294,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+f": // freeze instance + remember pure shape (dedupe)
+		case "ctrl+f": // freeze instance+shape; sticky stays intentional (^t)
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
 				name := it.Name
 				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(name)) {
+					stop := HoldInterrupt()
 					p, err := m.ctl.Freeze(name)
 					if err != nil {
+						stop()
 						m.status = err.Error()
 						return m, nil
 					}
 					sid, created, err := template.FreezeSave(m.store, p, false)
+					stop()
 					if err != nil {
 						m.status = err.Error()
 						return m, nil
@@ -330,13 +333,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			it := m.view[m.cursor]
 			switch it.Kind {
 			case KindActive:
-				// ensure instance row exists so edit has something to open
+				stop := HoldInterrupt()
 				p, err := m.ctl.Freeze(it.Name)
 				if err != nil {
+					stop()
 					m.status = err.Error()
 					return m, nil
 				}
-				if _, _, err := template.FreezeSave(m.store, p, false); err != nil {
+				_, _, err = template.FreezeSave(m.store, p, false)
+				stop()
+				if err != nil {
 					m.status = err.Error()
 					return m, nil
 				}
@@ -477,12 +483,16 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 		if err != nil {
 			return editDoneMsg{err: fmt.Errorf("parse: %w", err)}
 		}
+		stop := HoldInterrupt()
 		if err := st.Save(np); err != nil {
+			stop()
 			return editDoneMsg{err: err}
 		}
 		if np.Name != old {
 			_ = st.Delete(old)
+			_ = st.RebindName(old, np.Name)
 		}
+		stop()
 		return editDoneMsg{name: np.Name}
 	}), nil
 }
@@ -521,9 +531,9 @@ func (m model) View() string {
 	// count + keys on same line as filter (compact, less "second shell")
 	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
 	if m.help {
-		meta += "  ^n/p · enter · ^t tmpl · ^x kill · ^f freeze · ^e edit · ^d del · esc · ?"
+		meta += "  ^n/p · enter · ^t sticky · ^x kill · ^f freeze · ^e edit · ^d del · ^u/^w · esc"
 	} else if m.tmpl != "" && m.tmpl != "default" {
-		meta += "  tmpl:" + m.tmpl + "  enter · esc · ?"
+		meta += "  sticky:" + m.tmpl + "  enter · esc · ?"
 	} else {
 		meta += "  enter · esc · ?"
 	}

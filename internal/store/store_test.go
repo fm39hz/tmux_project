@@ -103,3 +103,56 @@ func TestSaveFreezeAtomic(t *testing.T) {
 	}
 	_ = st.Delete("zz-acid")
 }
+
+
+func TestRebindNameMergesUsageAndPairs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+	st, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	if err := st.RecordOpen("old-sess"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordOpen("old-sess"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordOpen("new-sess"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordPair("old-sess", "other"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.RebindName("old-sess", "new-sess"); err != nil {
+		t.Fatal(err)
+	}
+
+	us, err := st.AllUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := us["old-sess"]; ok {
+		t.Fatal("old usage should be gone")
+	}
+	u := us["new-sess"]
+	if u.Opens != 3 { // 2 from old + 1 from new
+		t.Fatalf("opens=%d want 3", u.Opens)
+	}
+
+	scores, err := st.PairScores("new-sess", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scores["other"] <= 0 {
+		t.Fatalf("pair should follow rename: %+v", scores)
+	}
+	// old endpoint gone
+	scoresOld, _ := st.PairScores("old-sess", 0)
+	if len(scoresOld) != 0 {
+		t.Fatalf("old pair scores should be empty: %+v", scoresOld)
+	}
+}

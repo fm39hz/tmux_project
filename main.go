@@ -53,7 +53,7 @@ func dispatch() error {
 
 Usage:
   gotomux              interactive picker
-  gotomux -f [name]    freeze session (arg, else current, else pick) → sqlite
+  gotomux -f [name]    freeze session (arg, else current, else pick)
   gotomux -e [name]    edit preset in $EDITOR
 
 Keys (fzf-style combobox — type to filter anytime):
@@ -61,16 +61,16 @@ Keys (fzf-style combobox — type to filter anytime):
   ctrl-n/p      next/prev (also ↑/↓)
   enter         connect
   ctrl-x        kill active
-  ctrl-f        freeze → sqlite
+  ctrl-f        freeze into shape
   ctrl-e        edit preset
   ctrl-d        delete preset
-  ctrl-t        sticky shape from selection (create/zox use it)
-  ctrl-u        clear query
+  ctrl-t        sticky shape
+  ctrl-u/w      clear query / delete word
   esc / ctrl-c  cancel (exit 0)
 
-Store: $XDG_DATA_HOME/gotomux/state.db  (presets, shapes, sticky, usage)
-	Layouts: $XDG_CONFIG_HOME/gotomux/layouts/<id>.json (1-1 backup)
-Edit format: JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}
+Store:   $XDG_DATA_HOME/gotomux/state.db  (presets, shapes, sticky, usage)
+Layouts: $XDG_CONFIG_HOME/gotomux/layouts/<id>.json (1-1 shape backup)
+Edit:    JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}
 `, version)
 		return nil
 	default:
@@ -212,6 +212,7 @@ func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
 }
 
 // freezeCLI: pick/resolve name freely (cancel = exit 0); hold SIGINT only for ACID write.
+// Freeze remembers instance+shape; does NOT change sticky — that is intentional via ^t.
 func freezeCLI(name string) error {
 	ctl, err := tmux.New()
 	if err != nil {
@@ -248,7 +249,7 @@ func freezeCLI(name string) error {
 	}
 
 	// --- ACID: freeze + save must not be half-killed by SIGINT spam ---
-	stop := holdSIGINT()
+	stop := picker.HoldInterrupt()
 	p, err := ctl.Freeze(name)
 	if err != nil {
 		stop()
@@ -301,7 +302,7 @@ func editCLI(name string) error {
 		if ctlErr != nil {
 			return fmt.Errorf("preset %q not found and tmux unavailable: %v", name, ctlErr)
 		}
-		stop := holdSIGINT()
+		stop := picker.HoldInterrupt()
 		p, err := ctl.Freeze(name)
 		if err != nil {
 			stop()
@@ -318,28 +319,5 @@ func editCLI(name string) error {
 		return fmt.Errorf("edit %q: %w", name, err)
 	}
 	return nil
-}
-
-// holdSIGINT prevents default terminate during a short critical section (freeze tx).
-// Stop restores default when the section ends.
-func holdSIGINT() (stop func()) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt)
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-ch:
-				// discard — critical section must finish ACID
-			case <-done:
-				return
-			}
-		}
-	}()
-	return func() {
-		signal.Stop(ch)
-		close(done)
-		drainSignals(ch)
-	}
 }
 
