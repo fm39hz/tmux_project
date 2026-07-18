@@ -1,7 +1,9 @@
-package main
+package tmux
 
 import (
 	"os/exec"
+
+	"github.com/fm39hz/gotomux/internal/store"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,7 +15,7 @@ import (
 //	w0 editor: 1 pane nvim @ root
 //	w1 test:   2 panes shell @ root and root/test
 func TestLoadGrimoireShape(t *testing.T) {
-	ctl, err := newTmuxCtl()
+	ctl, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,21 +27,21 @@ func TestLoadGrimoireShape(t *testing.T) {
 	testDir := root + "/test"
 	_ = exec.Command("mkdir", "-p", testDir).Run()
 
-	p := &Preset{
+	p := &store.Preset{
 		Name: name,
 		Cwd:  root,
-		Windows: []PresetWindow{
+		Windows: []store.PresetWindow{
 			{
 				Name: "editor",
 				Cwd:  root,
-				Panes: []PresetPane{
+				Panes: []store.PresetPane{
 					{Idx: 1, Cwd: root, Cmd: "nvim"},
 				},
 			},
 			{
 				Name: "test",
 				Cwd:  root,
-				Panes: []PresetPane{
+				Panes: []store.PresetPane{
 					{Idx: 1, Cwd: root, Cmd: ""},
 					{Idx: 2, Cwd: testDir, Cmd: ""},
 				},
@@ -116,7 +118,7 @@ func TestLoadGrimoireShape(t *testing.T) {
 
 // mirrors tmuxp/kho-cong.json shape
 func TestLoadKhoCongShape(t *testing.T) {
-	ctl, err := newTmuxCtl()
+	ctl, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,13 +130,13 @@ func TestLoadKhoCongShape(t *testing.T) {
 	a, b := root+"/cong-dlqg", root+"/kho-dl-mo"
 	_ = exec.Command("mkdir", "-p", a, b).Run()
 
-	p := &Preset{
+	p := &store.Preset{
 		Name: name,
 		Cwd:  root,
-		Windows: []PresetWindow{
-			{Name: "kho-cong", Cwd: root, Panes: []PresetPane{{Cwd: root, Cmd: "nvim"}}},
-			{Name: "shell", Cwd: root, Panes: []PresetPane{{Cwd: a}, {Cwd: b}}},
-			{Name: "files", Cwd: root, Panes: []PresetPane{{Cwd: root, Cmd: "yazi"}}},
+		Windows: []store.PresetWindow{
+			{Name: "kho-cong", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "nvim"}}},
+			{Name: "shell", Cwd: root, Panes: []store.PresetPane{{Cwd: a}, {Cwd: b}}},
+			{Name: "files", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "yazi"}}},
 		},
 	}
 	if err := ctl.Load(p); err != nil {

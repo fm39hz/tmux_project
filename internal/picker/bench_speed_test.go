@@ -1,60 +1,64 @@
-package main
+package picker
 
 import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/fm39hz/gotomux/internal/project"
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
 func BenchmarkReadyNoZoxide(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ctl, err := newTmuxCtl()
+		ctl, err := tmux.New()
 		if err != nil {
 			b.Fatal(err)
 		}
-		store, err := openStore()
+		st, err := store.Open()
 		if err != nil {
 			b.Fatal(err)
 		}
 		cwd, _ := os.Getwd()
-		root := findProjectRoot(cwd)
-		name := sessionName(root)
-		_ = snapshotAll(defaultSources(ctl, store, name, root))
-		store.Close()
+		root := project.FindProjectRoot(cwd)
+		name := project.SessionName(root)
+		_ = snapshotAll(defaultSources(ctl, st, name, root))
+		st.Close()
 	}
 }
 
 func BenchmarkReadyWithZoxide(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		ctl, err := newTmuxCtl()
+		ctl, err := tmux.New()
 		if err != nil {
 			b.Fatal(err)
 		}
-		store, err := openStore()
+		st, err := store.Open()
 		if err != nil {
 			b.Fatal(err)
 		}
 		cwd, _ := os.Getwd()
-		root := findProjectRoot(cwd)
-		name := sessionName(root)
-		_ = snapshotAll(defaultSources(ctl, store, name, root))
+		root := project.FindProjectRoot(cwd)
+		name := project.SessionName(root)
+		_ = snapshotAll(defaultSources(ctl, st, name, root))
 		_ = zoxideItems(zoxideList(), nil, nil)
-		store.Close()
+		st.Close()
 	}
 }
 
 func BenchmarkOpenStore(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		store, err := openStore()
+		st, err := store.Open()
 		if err != nil {
 			b.Fatal(err)
 		}
-		store.Close()
+		st.Close()
 	}
 }
 
 func BenchmarkListLive(b *testing.B) {
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -67,7 +71,7 @@ func BenchmarkListLive(b *testing.B) {
 }
 
 func BenchmarkHasSession(b *testing.B) {
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -81,7 +85,7 @@ func BenchmarkConnectExisting(b *testing.B) {
 	if os.Getenv("TMUX") == "" {
 		b.Skip("need TMUX for switch")
 	}
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -95,20 +99,20 @@ func BenchmarkConnectExisting(b *testing.B) {
 }
 
 func BenchmarkLoadPresetDetached(b *testing.B) {
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		b.Fatal(err)
 	}
-	store, err := openStore()
+	st, err := store.Open()
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer store.Close()
-	names, err := store.ListNames()
+	defer st.Close()
+	names, err := st.ListNames()
 	if err != nil || len(names) == 0 {
 		b.Skip("no presets")
 	}
-	src, err := store.Get(names[0])
+	src, err := st.Get(names[0])
 	if err != nil {
 		b.Fatal(err)
 	}

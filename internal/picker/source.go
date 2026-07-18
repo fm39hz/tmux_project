@@ -1,25 +1,27 @@
-package main
+package picker
 
 import (
 	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
 // Source IDs — stable keys for bySrc slots and future remote hosts.
 const (
-	srcCreate = "create"
-	srcTmux   = "tmux"
-	srcPreset = "preset"
-	srcZoxide = "zoxide"
+	SrcCreate = "create"
+	SrcTmux   = "tmux"
+	SrcPreset = "preset"
+	SrcZoxide = "zoxide"
 )
 
 // Source feeds the picker. Snapshot seeds paint; Refresh is optional truth update.
 // Add a source: implement this + register in defaultSources; connect via kind/src.
 type Source interface {
 	ID() string
-	Snapshot() []item
+	Snapshot() []Item
 	// Refresh: Cmd → sourceMsg; nil means Snapshot is already complete.
 	Refresh() tea.Cmd
 }
@@ -27,11 +29,11 @@ type Source interface {
 // sourceMsg replaces one source slot after background truth fetch.
 type sourceMsg struct {
 	id    string
-	items []item
+	items []Item
 }
 
 // defaultSources order = dedup priority (first wins name/path).
-func defaultSources(ctl *TmuxCtl, store *Store, createName, createCwd string) []Source {
+func defaultSources(ctl *tmux.Ctl, store *store.Store, createName, createCwd string) []Source {
 	return []Source{
 		&createSource{ctl: ctl, name: createName, cwd: createCwd},
 		&tmuxSource{ctl: ctl},
@@ -43,14 +45,14 @@ func defaultSources(ctl *TmuxCtl, store *Store, createName, createCwd string) []
 // --- create ---
 
 type createSource struct {
-	ctl  *TmuxCtl
+	ctl  *tmux.Ctl
 	name string
 	cwd  string
 }
 
-func (s *createSource) ID() string { return srcCreate }
+func (s *createSource) ID() string { return SrcCreate }
 
-func (s *createSource) Snapshot() []item {
+func (s *createSource) Snapshot() []Item {
 	if s.name == "" {
 		return nil
 	}
@@ -63,13 +65,13 @@ func (s *createSource) Snapshot() []item {
 			}
 		}
 	}
-	return []item{{
-		src:   srcCreate,
-		kind:  kindCreate,
-		title: fmt.Sprintf("[Create] %s", s.name),
-		desc:  s.cwd,
-		name:  s.name,
-		path:  s.cwd,
+	return []Item{{
+		Src:   SrcCreate,
+		Kind:  KindCreate,
+		Title: fmt.Sprintf("[Create] %s", s.name),
+		Desc:  s.cwd,
+		Name:  s.name,
+		Path:  s.cwd,
 	}}
 }
 
@@ -77,11 +79,11 @@ func (s *createSource) Refresh() tea.Cmd { return nil }
 
 // --- local tmux ---
 
-type tmuxSource struct{ ctl *TmuxCtl }
+type tmuxSource struct{ ctl *tmux.Ctl }
 
-func (s *tmuxSource) ID() string { return srcTmux }
+func (s *tmuxSource) ID() string { return SrcTmux }
 
-func (s *tmuxSource) Snapshot() []item {
+func (s *tmuxSource) Snapshot() []Item {
 	if s.ctl == nil {
 		return nil
 	}
@@ -89,16 +91,16 @@ func (s *tmuxSource) Snapshot() []item {
 	if err != nil {
 		return nil
 	}
-	out := make([]item, 0, len(live))
+	out := make([]Item, 0, len(live))
 	for _, ls := range live {
-		out = append(out, item{
-			src:     srcTmux,
-			kind:    kindActive,
-			title:   fmt.Sprintf("[Active] %s", ls.Name),
-			desc:    fmt.Sprintf("%d windows", ls.Windows),
-			name:    ls.Name,
-			path:    ls.Path,
-			windows: ls.Windows,
+		out = append(out, Item{
+			Src:     SrcTmux,
+			Kind:    KindActive,
+			Title:   fmt.Sprintf("[Active] %s", ls.Name),
+			Desc:    fmt.Sprintf("%d windows", ls.Windows),
+			Name:    ls.Name,
+			Path:    ls.Path,
+			Windows: ls.Windows,
 		})
 	}
 	return out
@@ -108,11 +110,11 @@ func (s *tmuxSource) Refresh() tea.Cmd { return nil }
 
 // --- presets ---
 
-type presetSource struct{ store *Store }
+type presetSource struct{ store *store.Store }
 
-func (s *presetSource) ID() string { return srcPreset }
+func (s *presetSource) ID() string { return SrcPreset }
 
-func (s *presetSource) Snapshot() []item {
+func (s *presetSource) Snapshot() []Item {
 	if s.store == nil {
 		return nil
 	}
@@ -120,16 +122,16 @@ func (s *presetSource) Snapshot() []item {
 	if err != nil {
 		return nil
 	}
-	out := make([]item, 0, len(meta))
+	out := make([]Item, 0, len(meta))
 	for _, m := range meta {
-		out = append(out, item{
-			src:     srcPreset,
-			kind:    kindPreset,
-			title:   fmt.Sprintf("[Preset] %s", m.Name),
-			desc:    "saved layout",
-			name:    m.Name,
-			path:    m.Cwd,
-			recency: m.LastUsed,
+		out = append(out, Item{
+			Src:     SrcPreset,
+			Kind:    KindPreset,
+			Title:   fmt.Sprintf("[Preset] %s", m.Name),
+			Desc:    "saved layout",
+			Name:    m.Name,
+			Path:    m.Cwd,
+			Recency: m.LastUsed,
 		})
 	}
 	return out
@@ -141,30 +143,30 @@ func (s *presetSource) Refresh() tea.Cmd { return nil }
 
 type zoxideSource struct{}
 
-func (s *zoxideSource) ID() string { return srcZoxide }
+func (s *zoxideSource) ID() string { return SrcZoxide }
 
-func (s *zoxideSource) Snapshot() []item {
+func (s *zoxideSource) Snapshot() []Item {
 	items, _, ok := loadZoxItemsSync()
 	if !ok {
 		return nil
 	}
 	// ensure src tag (older cache rows may lack it)
 	for i := range items {
-		items[i].src = srcZoxide
-		items[i].kind = kindZoxide
+		items[i].Src = SrcZoxide
+		items[i].Kind = KindZoxide
 	}
 	return items
 }
 
 func (s *zoxideSource) Refresh() tea.Cmd {
 	return func() tea.Msg {
-		return sourceMsg{id: srcZoxide, items: rebuildZoxItems()}
+		return sourceMsg{id: SrcZoxide, items: rebuildZoxItems()}
 	}
 }
 
 // snapshotAll: ordered Snapshot from every source (raw, no cross-dedupe).
-func snapshotAll(srcs []Source) map[string][]item {
-	out := make(map[string][]item, len(srcs))
+func snapshotAll(srcs []Source) map[string][]Item {
+	out := make(map[string][]Item, len(srcs))
 	for _, s := range srcs {
 		out[s.ID()] = s.Snapshot()
 	}
@@ -184,15 +186,15 @@ func refreshCmds(srcs []Source) []tea.Cmd {
 
 // flattenSources: source-order merge with name/path dedup (first wins).
 // emptyQuery: hide create; cap zoxide to zoxCap. query: full pools.
-func flattenSources(order []Source, bySrc map[string][]item, query string) []item {
+func flattenSources(order []Source, bySrc map[string][]Item, query string) []Item {
 	q := query != ""
 	names := map[string]bool{}
 	paths := map[string]bool{}
-	var out []item
+	var out []Item
 	for _, s := range order {
 		id := s.ID()
 		items := bySrc[id]
-		if id == srcZoxide && !q {
+		if id == SrcZoxide && !q {
 			n := zoxCap
 			if n > len(items) {
 				n = len(items)
@@ -200,14 +202,14 @@ func flattenSources(order []Source, bySrc map[string][]item, query string) []ite
 			items = items[:n]
 		}
 		for _, it := range items {
-			if id == srcCreate && q {
+			if id == SrcCreate && q {
 				continue
 			}
-			nr := normPath(it.path)
-			if names[it.name] || (nr != "" && paths[nr]) {
+			nr := normPath(it.Path)
+			if names[it.Name] || (nr != "" && paths[nr]) {
 				continue
 			}
-			names[it.name] = true
+			names[it.Name] = true
 			if nr != "" {
 				paths[nr] = true
 			}
@@ -218,7 +220,7 @@ func flattenSources(order []Source, bySrc map[string][]item, query string) []ite
 }
 
 // applyRankMeta overlays usage + cooccur on all slots.
-func applyRankMeta(bySrc map[string][]item, store *Store, pairs map[string]int64) {
+func applyRankMeta(bySrc map[string][]Item, store *store.Store, pairs map[string]int64) {
 	if store == nil {
 		return
 	}
@@ -234,7 +236,7 @@ func applyRankMeta(bySrc map[string][]item, store *Store, pairs map[string]int64
 }
 
 // countSources total raw items (pre-dedupe, pre-cap).
-func countSources(bySrc map[string][]item) int {
+func countSources(bySrc map[string][]Item) int {
 	n := 0
 	for _, items := range bySrc {
 		n += len(items)

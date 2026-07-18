@@ -1,10 +1,14 @@
-package main
+package template
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/fm39hz/gotomux/internal/project"
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
 // Templates live under $XDG_DATA_HOME/gotomux/templates/
@@ -15,18 +19,18 @@ import (
 //
 // Create/Zoxide enter: live → named preset → active template @ cwd.
 
-func builtinDefaultTemplate() *Preset {
-	return &Preset{
+func builtinDefaultTemplate() *store.Preset {
+	return &store.Preset{
 		Name: "default",
-		Windows: []PresetWindow{
-			{Name: "editor", Panes: []PresetPane{{Cmd: "nvim"}}},
-			{Name: "shell", Panes: []PresetPane{{}}},
+		Windows: []store.PresetWindow{
+			{Name: "editor", Panes: []store.PresetPane{{Cmd: "nvim"}}},
+			{Name: "shell", Panes: []store.PresetPane{{}}},
 		},
 	}
 }
 
 func templatesDir() (string, error) {
-	dir, err := dataDir()
+	dir, err := store.DataDir()
 	if err != nil {
 		return "", err
 	}
@@ -52,7 +56,7 @@ func activeNamePath() (string, error) {
 	return filepath.Join(dir, "active"), nil
 }
 
-func readActiveTemplateName() string {
+func ReadActiveName() string {
 	path, err := activeNamePath()
 	if err != nil {
 		return "default"
@@ -62,9 +66,9 @@ func readActiveTemplateName() string {
 		return "default"
 	}
 	name := strings.TrimSpace(string(b))
-	if name == "" || !validSessionName(name) && name != "default" {
+	if name == "" || !project.ValidSessionName(name) && name != "default" {
 		// allow default always; other names must be safe filenames
-		if name != "default" && !validSessionName(name) {
+		if name != "default" && !project.ValidSessionName(name) {
 			return "default"
 		}
 	}
@@ -74,7 +78,7 @@ func readActiveTemplateName() string {
 	return name
 }
 
-func writeActiveTemplateName(name string) error {
+func writeActiveName(name string) error {
 	if name == "" {
 		name = "default"
 	}
@@ -88,7 +92,7 @@ func writeActiveTemplateName(name string) error {
 	return os.WriteFile(path, []byte(name+"\n"), 0o644)
 }
 
-func saveTemplate(p *Preset) error {
+func saveTemplate(p *store.Preset) error {
 	if p == nil || p.Name == "" {
 		return fmt.Errorf("template needs name")
 	}
@@ -102,10 +106,10 @@ func saveTemplate(p *Preset) error {
 	// formatPreset keeps layout named-only; strip session cwd for template file
 	cp := *p
 	cp.Cwd = ""
-	return os.WriteFile(path, []byte(formatPreset(&cp)), 0o644)
+	return os.WriteFile(path, []byte(Format(&cp)), 0o644)
 }
 
-func loadTemplateFile(name string) (*Preset, error) {
+func loadTemplateFile(name string) (*store.Preset, error) {
 	if name == "" || name == "default" {
 		return loadDefaultTemplate()
 	}
@@ -117,18 +121,18 @@ func loadTemplateFile(name string) (*Preset, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parsePreset(string(raw))
+	return Parse(string(raw))
 }
 
 // loadDefaultTemplate reads templates/default.json, or seeds builtin.
-func loadDefaultTemplate() (*Preset, error) {
+func loadDefaultTemplate() (*store.Preset, error) {
 	path, err := templateFile("default")
 	if err != nil {
 		return builtinDefaultTemplate(), nil
 	}
 	raw, err := os.ReadFile(path)
 	if err == nil {
-		p, err := parsePreset(string(raw))
+		p, err := Parse(string(raw))
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", path, err)
 		}
@@ -141,17 +145,17 @@ func loadDefaultTemplate() (*Preset, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return p, nil
 	}
-	_ = os.WriteFile(path, []byte(formatPreset(p)), 0o644)
+	_ = os.WriteFile(path, []byte(Format(p)), 0o644)
 	return p, nil
 }
 
 // loadActiveTemplate resolves sticky name → template shape.
-func loadActiveTemplate() (*Preset, string, error) {
-	name := readActiveTemplateName()
+func LoadActive() (*store.Preset, string, error) {
+	name := ReadActiveName()
 	p, err := loadTemplateFile(name)
 	if err != nil {
 		// missing file → fall back default, clear sticky
-		_ = writeActiveTemplateName("default")
+		_ = writeActiveName("default")
 		p, err2 := loadDefaultTemplate()
 		return p, "default", err2
 	}
@@ -177,27 +181,27 @@ func relativizeCwd(root, cwd string) string {
 }
 
 // presetToTemplate drops abs roots; paths become relative to preset.Cwd.
-func presetToTemplate(p *Preset) *Preset {
+func presetToTemplate(p *store.Preset) *store.Preset {
 	if p == nil {
 		return builtinDefaultTemplate()
 	}
 	root := p.Cwd
-	out := &Preset{Name: p.Name}
+	out := &store.Preset{Name: p.Name}
 	if out.Name == "" {
 		out.Name = "custom"
 	}
 	for i, w := range p.Windows {
-		pw := PresetWindow{
+		pw := store.PresetWindow{
 			Idx:    i,
 			Name:   w.Name,
 			Cwd:    relativizeCwd(root, w.Cwd),
-			Layout: layoutForStore(w.Layout, len(w.Panes)),
+			Layout: tmux.LayoutForStore(w.Layout, len(w.Panes)),
 		}
 		if len(w.Panes) == 0 {
-			pw.Panes = []PresetPane{{}}
+			pw.Panes = []store.PresetPane{{}}
 		} else {
 			for j, pn := range w.Panes {
-				pw.Panes = append(pw.Panes, PresetPane{
+				pw.Panes = append(pw.Panes, store.PresetPane{
 					Idx: j,
 					Cwd: relativizeCwd(root, pn.Cwd),
 					Cmd: pn.Cmd,
@@ -213,47 +217,47 @@ func presetToTemplate(p *Preset) *Preset {
 }
 
 // setActiveFromPreset writes templates/<name>.json + sticky active.
-func setActiveFromPreset(p *Preset) (string, error) {
+func SetActiveFromPreset(p *store.Preset) (string, error) {
 	t := presetToTemplate(p)
 	if err := saveTemplate(t); err != nil {
 		return "", err
 	}
-	if err := writeActiveTemplateName(t.Name); err != nil {
+	if err := writeActiveName(t.Name); err != nil {
 		return "", err
 	}
 	return t.Name, nil
 }
 
-func resetActiveTemplate() error {
-	return writeActiveTemplateName("default")
+func ResetActive() error {
+	return writeActiveName("default")
 }
 
 // applyTemplate stamps a template onto a project root.
-func applyTemplate(tmpl *Preset, name, root string) *Preset {
+func Apply(tmpl *store.Preset, name, root string) *store.Preset {
 	if root == "" {
 		root, _ = os.Getwd()
 	}
-	p := &Preset{Name: name, Cwd: root}
+	p := &store.Preset{Name: name, Cwd: root}
 	if tmpl == nil || len(tmpl.Windows) == 0 {
 		tmpl = builtinDefaultTemplate()
 	}
 	for i, w := range tmpl.Windows {
 		wcwd := resolveCwd(root, w.Cwd)
-		pw := PresetWindow{
+		pw := store.PresetWindow{
 			Idx:    i,
 			Name:   w.Name,
 			Cwd:    wcwd,
 			Layout: w.Layout,
 		}
 		if len(w.Panes) == 0 {
-			pw.Panes = []PresetPane{{Cwd: wcwd}}
+			pw.Panes = []store.PresetPane{{Cwd: wcwd}}
 		} else {
 			for j, pn := range w.Panes {
 				cwd := pn.Cwd
 				if cwd == "" {
 					cwd = w.Cwd
 				}
-				pw.Panes = append(pw.Panes, PresetPane{
+				pw.Panes = append(pw.Panes, store.PresetPane{
 					Idx: j,
 					Cwd: resolveCwd(root, cwd),
 					Cmd: pn.Cmd,
@@ -280,17 +284,17 @@ func resolveCwd(root, cwd string) string {
 //	live? → attach
 //	preset with same name? → bake that preset
 //	else → active sticky template @ cwd
-func connectProject(ctl *TmuxCtl, store *Store, name, cwd string) error {
+func ConnectProject(ctl *tmux.Ctl, st *store.Store, name, cwd string) error {
 	if ctl.Has(name) {
 		return ctl.Connect(name, "")
 	}
-	if p, err := store.Get(name); err == nil {
-		_ = store.Touch(name)
+	if p, err := st.Get(name); err == nil {
+		_ = st.Touch(name)
 		return ctl.ConnectPreset(p)
 	}
-	tmpl, _, err := loadActiveTemplate()
+	tmpl, _, err := LoadActive()
 	if err != nil {
 		return err
 	}
-	return ctl.ConnectPreset(applyTemplate(tmpl, name, cwd))
+	return ctl.ConnectPreset(Apply(tmpl, name, cwd))
 }

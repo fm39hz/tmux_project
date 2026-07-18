@@ -1,4 +1,4 @@
-package main
+package picker
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 
 // teaOpts: force /dev/tty so display-popup + default-shell=nu still get a real TTY.
 // Inside tmux (incl. popups) use alt-screen — more reliable than inline redraw there.
-func teaOpts() (opts []tea.ProgramOption, alt bool, err error) {
+func TeaOpts() (opts []tea.ProgramOption, alt bool, err error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		// fall back to defaults (stdin/stdout) — works in a normal terminal
@@ -64,7 +64,7 @@ func isModifierChord(msg tea.KeyMsg) bool {
 
 // clearInline erases n lines of residual bubbletea inline UI (fzf-style).
 // Bubble Tea stop() only clears the current line — the rest stays in scrollback.
-func clearInline(n int) {
+func ClearInline(n int) {
 	if n <= 0 {
 		return
 	}

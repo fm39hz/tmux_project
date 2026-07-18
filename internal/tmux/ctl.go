@@ -1,4 +1,4 @@
-package main
+package tmux
 
 import (
 	"fmt"
@@ -7,18 +7,58 @@ import (
 	"strings"
 
 	"github.com/GianlucaP106/gotmux/gotmux"
+	"github.com/fm39hz/gotomux/internal/project"
+	"github.com/fm39hz/gotomux/internal/store"
 )
 
-type TmuxCtl struct {
+
+var namedLayouts = map[string]bool{
+	"even-horizontal": true,
+	"even-vertical":   true,
+	"main-horizontal": true,
+	"main-vertical":   true,
+	"tiled":           true,
+}
+
+func IsNamedLayout(s string) bool { return namedLayouts[s] }
+
+func IsLayoutDump(s string) bool {
+	return strings.Contains(s, ",") && (strings.Contains(s, "{") || strings.Contains(s, "[") || strings.Contains(s, "x"))
+}
+
+// LayoutForStore: named layouts + raw window_layout dumps.
+func LayoutForStore(layout string, nPanes int) string {
+	if nPanes <= 1 || layout == "" {
+		return ""
+	}
+	if IsNamedLayout(layout) || IsLayoutDump(layout) {
+		return layout
+	}
+	return ""
+}
+
+// LayoutForBake: apply stored layout; multi-pane empty → even-horizontal.
+func LayoutForBake(layout string, nPanes int) string {
+	if nPanes <= 1 {
+		return ""
+	}
+	if layout != "" {
+		return layout
+	}
+	return "even-horizontal"
+}
+
+
+type Ctl struct {
 	t *gotmux.Tmux
 }
 
-func newTmuxCtl() (*TmuxCtl, error) {
+func New() (*Ctl, error) {
 	t, err := gotmux.DefaultTmux()
 	if err != nil {
 		return nil, err
 	}
-	return &TmuxCtl{t: t}, nil
+	return &Ctl{t: t}, nil
 }
 
 type LiveSession struct {
@@ -27,7 +67,7 @@ type LiveSession struct {
 	Path    string // session_path — for dedup vs zoxide
 }
 
-func (c *TmuxCtl) ListLive() ([]LiveSession, error) {
+func (c *Ctl) ListLive() ([]LiveSession, error) {
 	ss, err := c.t.ListSessions()
 	if err != nil {
 		return nil, err
@@ -39,12 +79,12 @@ func (c *TmuxCtl) ListLive() ([]LiveSession, error) {
 	return out, nil
 }
 
-func (c *TmuxCtl) Has(name string) bool {
+func (c *Ctl) Has(name string) bool {
 	return c.t.HasSession(name)
 }
 
 // CurrentSession: name of session this client is attached to. Empty if outside tmux.
-func (c *TmuxCtl) CurrentSession() string {
+func (c *Ctl) CurrentSession() string {
 	if os.Getenv("TMUX") == "" {
 		return ""
 	}
@@ -55,7 +95,7 @@ func (c *TmuxCtl) CurrentSession() string {
 	return strings.TrimSpace(string(out))
 }
 
-func (c *TmuxCtl) Kill(name string) error {
+func (c *Ctl) Kill(name string) error {
 	s, err := c.t.GetSessionByName(name)
 	if err != nil || s == nil {
 		return err
@@ -63,7 +103,7 @@ func (c *TmuxCtl) Kill(name string) error {
 	return s.Kill()
 }
 
-func (c *TmuxCtl) run(args ...string) error {
+func (c *Ctl) run(args ...string) error {
 	_, err := c.t.Command(args...)
 	if err != nil {
 		return fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
@@ -71,7 +111,7 @@ func (c *TmuxCtl) run(args ...string) error {
 	return nil
 }
 
-func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
+func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 	s, err := c.t.GetSessionByName(name)
 	if err != nil {
 		return nil, err
@@ -80,13 +120,13 @@ func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
 		return nil, fmt.Errorf("session %q not found", name)
 	}
 
-	p := &Preset{Name: name, Cwd: s.Path}
+	p := &store.Preset{Name: name, Cwd: s.Path}
 	wins, err := s.ListWindows()
 	if err != nil {
 		return nil, err
 	}
 	for _, w := range wins {
-		pw := PresetWindow{Idx: w.Index, Name: w.Name, Layout: w.Layout}
+		pw := store.PresetWindow{Idx: w.Index, Name: w.Name, Layout: w.Layout}
 		panes, err := w.ListPanes()
 		if err != nil {
 			return nil, err
@@ -102,7 +142,7 @@ func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
 					cmd = b
 				}
 			}
-			pw.Panes = append(pw.Panes, PresetPane{
+			pw.Panes = append(pw.Panes, store.PresetPane{
 				Idx: pn.Index,
 				Cwd: cwd,
 				Cmd: cmd,
@@ -117,7 +157,7 @@ func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
 			pw.Cwd = p.Cwd
 		}
 		// keep named layout or window_layout dump (structure for bake)
-		pw.Layout = layoutForStore(w.Layout, len(pw.Panes))
+		pw.Layout = LayoutForStore(w.Layout, len(pw.Panes))
 		p.Windows = append(p.Windows, pw)
 	}
 	if p.Cwd == "" && len(p.Windows) > 0 {
@@ -132,8 +172,8 @@ func (c *TmuxCtl) Freeze(name string) (*Preset, error) {
 //	window: panes[] each with start_directory + optional shell_command
 //
 // Uses raw tmux commands so shell_command works on new-session / new-window / split-window.
-func (c *TmuxCtl) Load(p *Preset) error {
-	if !validSessionName(p.Name) {
+func (c *Ctl) Load(p *store.Preset) error {
+	if !project.ValidSessionName(p.Name) {
 		return fmt.Errorf("invalid session name %q", p.Name)
 	}
 	if c.Has(p.Name) {
@@ -192,7 +232,7 @@ func (c *TmuxCtl) Load(p *Preset) error {
 }
 
 // pinWindowName: match tmuxp automatic-rename:false so names don't become "nvim".
-func (c *TmuxCtl) pinWindowName(session, winName string) {
+func (c *Ctl) pinWindowName(session, winName string) {
 	if winName == "" {
 		return
 	}
@@ -202,15 +242,15 @@ func (c *TmuxCtl) pinWindowName(session, winName string) {
 }
 
 // normalizeWindows: empty panes → one shell pane; fill missing cwds from window/session.
-func normalizeWindows(wins []PresetWindow, sessCwd string) []PresetWindow {
+func normalizeWindows(wins []store.PresetWindow, sessCwd string) []store.PresetWindow {
 	if len(wins) == 0 {
-		return []PresetWindow{{
+		return []store.PresetWindow{{
 			Name:  "",
 			Cwd:   sessCwd,
-			Panes: []PresetPane{{Cwd: sessCwd}},
+			Panes: []store.PresetPane{{Cwd: sessCwd}},
 		}}
 	}
-	out := make([]PresetWindow, len(wins))
+	out := make([]store.PresetWindow, len(wins))
 	for i, w := range wins {
 		out[i] = w
 		wcwd := w.Cwd
@@ -219,10 +259,10 @@ func normalizeWindows(wins []PresetWindow, sessCwd string) []PresetWindow {
 		}
 		out[i].Cwd = wcwd
 		if len(w.Panes) == 0 {
-			out[i].Panes = []PresetPane{{Cwd: wcwd}}
+			out[i].Panes = []store.PresetPane{{Cwd: wcwd}}
 			continue
 		}
-		panes := make([]PresetPane, len(w.Panes))
+		panes := make([]store.PresetPane, len(w.Panes))
 		for j, pn := range w.Panes {
 			panes[j] = pn
 			if panes[j].Cwd == "" {
@@ -235,7 +275,7 @@ func normalizeWindows(wins []PresetWindow, sessCwd string) []PresetWindow {
 }
 
 // splitRest: extra panes in same window (horizontal), each with own -c and optional cmd.
-func (c *TmuxCtl) splitRest(session, winName string, panes []PresetPane) error {
+func (c *Ctl) splitRest(session, winName string, panes []store.PresetPane) error {
 	if len(panes) == 0 {
 		return nil
 	}
@@ -269,24 +309,11 @@ func cmdArgs(cmd string) []string {
 	return strings.Fields(cmd)
 }
 
-// validSessionName: tmux targets use "sess:win" — colon/control break them.
-func validSessionName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		switch r {
-		case ':', '\n', '\r', '\t':
-			return false
-		}
-	}
-	return true
-}
 
-func (c *TmuxCtl) applyLayout(session string, w PresetWindow) {
+func (c *Ctl) applyLayout(session string, w store.PresetWindow) {
 	// named layout or full window_layout dump from freeze.
 	// select-layout restores split tree (vertical / 2x2 / …) after panes exist.
-	layout := layoutForBake(w.Layout, len(w.Panes))
+	layout := LayoutForBake(w.Layout, len(w.Panes))
 	if layout == "" {
 		return
 	}
@@ -295,8 +322,8 @@ func (c *TmuxCtl) applyLayout(session string, w PresetWindow) {
 }
 
 // Connect attaches or switches to session. Creates empty session if missing.
-func (c *TmuxCtl) Connect(name, cwd string) error {
-	if !validSessionName(name) {
+func (c *Ctl) Connect(name, cwd string) error {
+	if !project.ValidSessionName(name) {
 		return fmt.Errorf("invalid session name %q", name)
 	}
 	if !c.Has(name) {
@@ -317,21 +344,10 @@ func (c *TmuxCtl) Connect(name, cwd string) error {
 	return s.Attach()
 }
 
-func (c *TmuxCtl) ConnectPreset(p *Preset) error {
+func (c *Ctl) ConnectPreset(p *store.Preset) error {
 	if err := c.Load(p); err != nil {
 		return err
 	}
 	return c.Connect(p.Name, p.Cwd)
 }
 
-// --- helpers outside tmux ---
-
-func fileExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && !st.IsDir()
-}
-
-func dirExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
-}

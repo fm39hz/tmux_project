@@ -1,4 +1,4 @@
-package main
+package picker
 
 import (
 	"fmt"
@@ -10,32 +10,36 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/template"
+	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-type action int
+type Action int
 
 const (
-	actionNone action = iota
-	actionConnect
-	actionQuit
+	ActionNone Action = iota
+	ActionConnect
+	ActionQuit
 )
 
-type result struct {
-	action action
-	item   item
-	err    error
+type Result struct {
+	Action Action
+	Item   Item
+	Err    error
 }
 
 type model struct {
 	sources  []Source
-	bySrc    map[string][]item // Snapshot/Refresh slots keyed by Source.ID
-	view     []item
+	bySrc    map[string][]Item // Snapshot/Refresh slots keyed by Source.ID
+	view     []Item
 	cursor   int
 	query    string
-	ctl      *TmuxCtl
-	store    *Store
+	ctl      *tmux.Ctl
+	store    *store.Store
 	status   string
-	done     result
+	done     Result
 	width    int
 	height   int
 	maxShow  int
@@ -61,22 +65,24 @@ var (
 	styleHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-func styleFor(k kind) lipgloss.Style {
+func (m model) Done() Result { return m.done }
+
+func styleFor(k Kind) lipgloss.Style {
 	switch k {
-	case kindActive:
+	case KindActive:
 		return styleActive
-	case kindPreset:
+	case KindPreset:
 		return stylePreset
-	case kindCreate:
+	case KindCreate:
 		return styleCreate
-	case kindZoxide:
+	case KindZoxide:
 		return styleZoxide
 	default:
 		return stylePreset
 	}
 }
 
-func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
+func NewModel(ctl *tmux.Ctl, store *store.Store, createName, createCwd string) model {
 	srcs := defaultSources(ctl, store, createName, createCwd)
 	bySrc := snapshotAll(srcs)
 	ctx := ""
@@ -95,7 +101,7 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 		ctl:     ctl,
 		store:   store,
 		maxShow: 12,
-		tmpl:    readActiveTemplateName(),
+		tmpl:    template.ReadActiveName(),
 		started: time.Now(),
 		ctx:     ctx,
 		pairs:   pairs,
@@ -104,20 +110,20 @@ func newModel(ctl *TmuxCtl, store *Store, createName, createCwd string) model {
 	return m
 }
 
-func (m *model) pool() []item {
+func (m *model) pool() []Item {
 	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.query))
 }
 
-func (m *model) mergeSource(id string, items []item) {
+func (m *model) mergeSource(id string, items []Item) {
 	if m.bySrc == nil {
-		m.bySrc = map[string][]item{}
+		m.bySrc = map[string][]Item{}
 	}
 	for i := range items {
-		if items[i].src == "" {
-			items[i].src = id
+		if items[i].Src == "" {
+			items[i].Src = id
 		}
 	}
-	slot := map[string][]item{id: items}
+	slot := map[string][]Item{id: items}
 	applyRankMeta(slot, m.store, m.pairs)
 	m.bySrc[id] = slot[id]
 }
@@ -172,7 +178,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			m.done = result{action: actionQuit}
+			m.done = Result{Action: ActionQuit}
 			return m, tea.Quit
 
 		case "esc":
@@ -181,7 +187,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if time.Since(m.started) < 500*time.Millisecond {
 				return m, nil
 			}
-			m.done = result{action: actionQuit}
+			m.done = Result{Action: ActionQuit}
 			return m, tea.Quit
 
 		case "?":
@@ -191,13 +197,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+t": // sticky template from preset; else reset default
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				if it.kind == kindPreset {
-					p, err := m.store.Get(it.name)
+				if it.Kind == KindPreset {
+					p, err := m.store.Get(it.Name)
 					if err != nil {
 						m.status = err.Error()
 						return m, nil
 					}
-					name, err := setActiveFromPreset(p)
+					name, err := template.SetActiveFromPreset(p)
 					if err != nil {
 						m.status = err.Error()
 						return m, nil
@@ -207,7 +213,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			if err := resetActiveTemplate(); err != nil {
+			if err := template.ResetActive(); err != nil {
 				m.status = err.Error()
 			} else {
 				m.tmpl = "default"
@@ -217,7 +223,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "enter":
 			if len(m.view) > 0 && m.cursor < len(m.view) {
-				m.done = result{action: actionConnect, item: m.view[m.cursor]}
+				m.done = Result{Action: ActionConnect, Item: m.view[m.cursor]}
 				return m, tea.Quit
 			}
 
@@ -258,14 +264,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+x": // kill active
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				if it.kind == kindActive {
-					if err := m.ctl.Kill(it.name); err != nil {
+				if it.Kind == KindActive {
+					if err := m.ctl.Kill(it.Name); err != nil {
 						m.status = err.Error()
 					} else {
 						if m.store != nil {
-							_ = m.store.RecordKill(it.name)
+							_ = m.store.RecordKill(it.Name)
 						}
-						m.status = "killed " + it.name
+						m.status = "killed " + it.Name
 						m.reload()
 					}
 				}
@@ -275,9 +281,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+f": // freeze live session → overwrite preset
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				name := it.name
+				name := it.Name
 				// Active always live; Preset freezes only if session currently exists
-				if it.kind == kindActive || (it.kind == kindPreset && m.ctl.Has(name)) {
+				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(name)) {
 					p, err := m.ctl.Freeze(name)
 					if err != nil {
 						m.status = err.Error()
@@ -287,7 +293,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.status = "froze " + name
 						m.reload()
 					}
-				} else if it.kind == kindPreset {
+				} else if it.Kind == KindPreset {
 					m.status = "session not running — attach first"
 				}
 			}
@@ -296,14 +302,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+e": // edit preset in $EDITOR
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				if it.kind == kindPreset {
-					cmd, err := m.beginEdit(it.name)
+				if it.Kind == KindPreset {
+					cmd, err := m.beginEdit(it.Name)
 					if err != nil {
 						m.status = err.Error()
 						return m, nil
 					}
 					// wipe inline frame before ReleaseTerminal — else editor return duplicates UI
-					clearInline(m.frameLines())
+					ClearInline(m.FrameLines())
 					return m, cmd
 				}
 			}
@@ -312,11 +318,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+d": // delete preset
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
-				if it.kind == kindPreset {
-					if err := m.store.Delete(it.name); err != nil {
+				if it.Kind == KindPreset {
+					if err := m.store.Delete(it.Name); err != nil {
 						m.status = err.Error()
 					} else {
-						m.status = "deleted " + it.name
+						m.status = "deleted " + it.Name
 						m.reload()
 					}
 				}
@@ -341,7 +347,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editDoneMsg:
 		// editor left junk below; wipe so repaint is single frame
-		clearInline(m.frameLines())
+		ClearInline(m.FrameLines())
 		if msg.err != nil {
 			m.status = msg.err.Error()
 		} else {
@@ -370,7 +376,7 @@ func (m *model) reload() {
 }
 
 // frameLines is fixed height of View — used to wipe residual UI after quit.
-func (m model) frameLines() int {
+func (m model) FrameLines() int {
 	maxShow := m.maxShow
 	if maxShow <= 0 {
 		maxShow = 12
@@ -389,7 +395,7 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := dataDir()
+	dir, err := store.DataDir()
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +404,7 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 		return nil, err
 	}
 	path := f.Name()
-	if _, err := f.WriteString(formatPreset(p)); err != nil {
+	if _, err := f.WriteString(template.Format(p)); err != nil {
 		f.Close()
 		os.Remove(path)
 		return nil, err
@@ -435,7 +441,7 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 		if err != nil {
 			return editDoneMsg{err: err}
 		}
-		np, err := parsePreset(string(raw))
+		np, err := template.Parse(string(raw))
 		if err != nil {
 			return editDoneMsg{err: fmt.Errorf("parse: %w", err)}
 		}
@@ -498,9 +504,9 @@ func (m model) View() string {
 		}
 		for i := start; i < end; i++ {
 			it := m.view[i]
-			line := it.title
-			if it.desc != "" {
-				line = line + "  " + it.desc
+			line := it.Title
+			if it.Desc != "" {
+				line = line + "  " + it.Desc
 			}
 			if m.width > 4 {
 				line = truncateRunes(line, m.width-2)
@@ -508,7 +514,7 @@ func (m model) View() string {
 			if i == m.cursor {
 				b.WriteString(styleCursor.Render("▸ " + line))
 			} else {
-				b.WriteString(styleFor(it.kind).Render("  " + line))
+				b.WriteString(styleFor(it.Kind).Render("  " + line))
 			}
 			b.WriteByte('\n')
 			shown++

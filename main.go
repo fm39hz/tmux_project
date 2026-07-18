@@ -6,6 +6,12 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/fm39hz/gotomux/internal/picker"
+	"github.com/fm39hz/gotomux/internal/project"
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/template"
+	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
 func main() {
@@ -61,91 +67,93 @@ Edit format: JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}`)
 }
 
 func run() error {
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		return err
 	}
-	store, err := openStore()
+	st, err := store.Open()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer st.Close()
+	picker.BindStore(st)
 
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	root := findProjectRoot(cwd)
-	name := sessionName(root)
+	root := project.FindProjectRoot(cwd)
+	name := project.SessionName(root)
 
-	m := newModel(ctl, store, name, root)
-	opts, alt, err := teaOpts()
+	m := picker.NewModel(ctl, st, name, root)
+	opts, alt, err := picker.TeaOpts()
 	if err != nil {
 		return err
 	}
 	p := tea.NewProgram(m, opts...)
 	final, err := p.Run()
-	if fm, ok := final.(model); ok {
+	if fm, ok := final.(interface {
+		Done() picker.Result
+		FrameLines() int
+	}); ok {
 		if !alt {
-			clearInline(fm.frameLines())
+			picker.ClearInline(fm.FrameLines())
 		}
 		if err != nil {
 			return err
 		}
-		if fm.done.action != actionConnect {
+		res := fm.Done()
+		if res.Action != picker.ActionConnect {
 			return nil
 		}
-		return connectItem(ctl, store, fm.done.item)
+		return connectItem(ctl, st, res.Item)
 	}
 	return err
 }
 
-func connectItem(ctl *TmuxCtl, store *Store, it item) error {
+func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
 	var err error
-	switch it.kind {
-	case kindCreate, kindZoxide:
-		// live → preset → default template (no prompts)
-		err = connectProject(ctl, store, it.name, it.path)
-	case kindActive:
-		err = ctl.Connect(it.name, "")
-	case kindPreset:
-		p, errGet := store.Get(it.name)
+	switch it.Kind {
+	case picker.KindCreate, picker.KindZoxide:
+		err = template.ConnectProject(ctl, st, it.Name, it.Path)
+	case picker.KindActive:
+		err = ctl.Connect(it.Name, "")
+	case picker.KindPreset:
+		p, errGet := st.Get(it.Name)
 		if errGet != nil {
 			return errGet
 		}
-		_ = store.Touch(it.name)
+		_ = st.Touch(it.Name)
 		err = ctl.ConnectPreset(p)
 	default:
 		return fmt.Errorf("unknown item kind")
 	}
-	if err == nil && store != nil {
-		_ = store.RecordOpen(it.name)
-		// co-occurrence: pairs with other sessions live at connect time
+	if err == nil && st != nil {
+		_ = st.RecordOpen(it.Name)
 		if live, e := ctl.ListLive(); e == nil {
 			names := make([]string, 0, len(live))
 			for _, s := range live {
-				if s.Name != it.name {
+				if s.Name != it.Name {
 					names = append(names, s.Name)
 				}
 			}
-			store.RecordPairsWithLive(it.name, names)
+			st.RecordPairsWithLive(it.Name, names)
 		}
 	}
 	return err
 }
 
 func freezeCLI() error {
-	ctl, err := newTmuxCtl()
+	ctl, err := tmux.New()
 	if err != nil {
 		return err
 	}
-	store, err := openStore()
+	st, err := store.Open()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
+	defer st.Close()
 
-	// inside tmux → snapshot current session; outside → pick
 	name := ctl.CurrentSession()
 	if name == "" {
 		live, err := ctl.ListLive()
@@ -159,7 +167,7 @@ func freezeCLI() error {
 		for _, s := range live {
 			items = append(items, s.Name)
 		}
-		name, err = runPick(items)
+		name, err = picker.Pick(items)
 		if err != nil || name == "" {
 			return err
 		}
@@ -168,26 +176,19 @@ func freezeCLI() error {
 	if err != nil {
 		return err
 	}
-	if err := store.Save(p); err != nil {
+	if err := st.Save(p); err != nil {
 		return err
 	}
-	fmt.Println("froze", name, "→", filepath.Join(mustDataDir(), "state.db"))
+	dir, _ := store.DataDir()
+	fmt.Println("froze", name, "→", filepath.Join(dir, "state.db"))
 	return nil
 }
 
 func editCLI(name string) error {
-	store, err := openStore()
+	st, err := store.Open()
 	if err != nil {
 		return err
 	}
-	defer store.Close()
-	return editPreset(store, name)
-}
-
-func mustDataDir() string {
-	d, err := dataDir()
-	if err != nil {
-		return "~/.local/share/gotomux"
-	}
-	return d
+	defer st.Close()
+	return template.Edit(st, name, picker.Pick)
 }

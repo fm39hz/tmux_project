@@ -1,9 +1,11 @@
-package main
+package picker
 
 import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"github.com/fm39hz/gotomux/internal/store"
 )
 
 // Ranking: lexicographic rankKey (not a single ad-hoc sum).
@@ -86,13 +88,13 @@ func (a rankKey) less(b rankKey) bool {
 	return a.idx < b.idx
 }
 
-func kindRank(k kind) int8 {
+func kindRank(k Kind) int8 {
 	switch k {
-	case kindCreate:
+	case KindCreate:
 		return 4
-	case kindActive:
+	case KindActive:
 		return 3
-	case kindPreset:
+	case KindPreset:
 		return 2
 	default:
 		return 1
@@ -339,14 +341,14 @@ func isBoundary(r rune) bool {
 }
 
 // bestHit for a single token against name / basename / path.
-func bestHitToken(token string, it item) (fieldHit, bool) {
+func bestHitToken(token string, it Item) (fieldHit, bool) {
 	best := fieldHit{tierNone, 0}
 	any := false
-	if h, ok := matchOnLabel(token, it.name); ok {
+	if h, ok := matchOnLabel(token, it.Name); ok {
 		best, any = h, true
 	}
-	base := filepath.Base(it.path)
-	if base != "" && !strings.EqualFold(base, it.name) {
+	base := filepath.Base(it.Path)
+	if base != "" && !strings.EqualFold(base, it.Name) {
 		if h, ok := matchOnLabel(token, base); ok {
 			if !any {
 				best, any = h, true
@@ -355,7 +357,7 @@ func bestHitToken(token string, it item) (fieldHit, bool) {
 			}
 		}
 	}
-	if h, ok := matchOnPath(token, it.path); ok {
+	if h, ok := matchOnPath(token, it.Path); ok {
 		if !any {
 			best, any = h, true
 		}
@@ -411,23 +413,23 @@ func frecencyScore(opens, kills, lastOpen, lastKill, now int64) int64 {
 }
 
 // usageRecency maps stored Usage → rank recency key at "now".
-func usageRecency(u Usage, now int64) int64 {
+func usageRecency(u store.Usage, now int64) int64 {
 	return frecencyScore(u.Opens, u.Kills, u.LastOpen, u.LastKill, now)
 }
 
 // rankOf builds the sort key. ok=false → drop.
-func rankOf(q string, it item, idx int) (rankKey, bool) {
-	kr := kindRank(it.kind)
-	pq := pathQuality(it.path)
+func rankOf(q string, it Item, idx int) (rankKey, bool) {
+	kr := kindRank(it.Kind)
+	pq := pathQuality(it.Path)
 	q = strings.TrimSpace(q)
 
 	if q == "" {
-		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, cooccur: it.cooccur, pathQ: pq, idx: idx}, true
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.Recency, cooccur: it.Cooccur, pathQ: pq, idx: idx}, true
 	}
 
 	tokens := strings.Fields(strings.ToLower(q))
 	if len(tokens) == 0 {
-		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.recency, cooccur: it.cooccur, pathQ: pq, idx: idx}, true
+		return rankKey{tier: 0, kind: kr, detail: 0, recency: it.Recency, cooccur: it.Cooccur, pathQ: pq, idx: idx}, true
 	}
 
 	// Multi-token AND: every token must match; tier = worst; detail = sum.
@@ -452,15 +454,15 @@ func rankOf(q string, it item, idx int) (rankKey, bool) {
 		tier:    worst,
 		kind:    kr,
 		detail:  detail,
-		recency: it.recency,
-		cooccur: it.cooccur,
+		recency: it.Recency,
+		cooccur: it.Cooccur,
 		pathQ:   pq,
 		idx:     idx,
 	}, true
 }
 
 // scoreItem: debug int (higher = better). Production sort uses rankKey.less.
-func scoreItem(q string, it item) int {
+func scoreItem(q string, it Item) int {
 	k, ok := rankOf(q, it, 0)
 	if !ok {
 		return -1

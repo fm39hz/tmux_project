@@ -1,4 +1,4 @@
-package main
+package picker
 
 import (
 	"strings"
@@ -16,7 +16,7 @@ type pickModel struct {
 	quit   bool
 }
 
-func runPick(names []string) (string, error) {
+func Pick(names []string) (string, error) {
 	if len(names) == 1 {
 		return names[0], nil
 	}
@@ -29,7 +29,7 @@ func runPick(names []string) (string, error) {
 	}
 	pm := final.(pickModel)
 	// prompt + header + len(view) lines
-	clearInline(2 + len(pm.view))
+	ClearInline(2 + len(pm.view))
 	return pm.name, nil
 }
 

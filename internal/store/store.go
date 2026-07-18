@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"database/sql"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fm39hz/gotomux/internal/project"
 	_ "modernc.org/sqlite"
 )
 
@@ -36,8 +37,8 @@ type Store struct {
 	db *sql.DB
 }
 
-func openStore() (*Store, error) {
-	dir, err := dataDir()
+func Open() (*Store, error) {
+	dir, err := DataDir()
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +63,6 @@ func openStore() (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	setZoxStore(s)
 	return s, nil
 }
 
@@ -84,7 +84,7 @@ func (s *Store) pragma() error {
 	return nil
 }
 
-func dataDir() (string, error) {
+func DataDir() (string, error) {
 	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
 		return filepath.Join(xdg, "gotomux"), nil
 	}
@@ -350,7 +350,7 @@ func (s *Store) Get(name string) (*Preset, error) {
 }
 
 func (s *Store) Save(p *Preset) error {
-	if !validSessionName(p.Name) {
+	if !project.ValidSessionName(p.Name) {
 		return fmt.Errorf("invalid session name %q", p.Name)
 	}
 	tx, err := s.db.Begin()
@@ -596,44 +596,49 @@ SELECT a, b, n, last FROM pair WHERE a = ? OR b = ?
 	return out, rows.Err()
 }
 
-// LoadZoxItems returns cached zoxide picker rows and cache age.
-func (s *Store) LoadZoxItems() (items []item, updated int64, ok bool) {
+
+// ZoxRow is a cached zoxide picker row (no UI types).
+type ZoxRow struct {
+	Name    string
+	Path    string
+	Title   string
+	Desc    string
+	Recency int64
+}
+
+// LoadZox returns cached zoxide rows and cache age (unix updated).
+func (s *Store) LoadZox() (rows []ZoxRow, updated int64, ok bool) {
 	var upd int64
 	err := s.db.QueryRow(`SELECT updated FROM zox_meta WHERE id = 1`).Scan(&upd)
 	if err != nil {
 		return nil, 0, false
 	}
-	rows, err := s.db.Query(`SELECT name, path, title, desc, recency FROM zox_item ORDER BY ord`)
+	q, err := s.db.Query(`SELECT name, path, title, desc, recency FROM zox_item ORDER BY ord`)
 	if err != nil {
 		return nil, 0, false
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var it item
-		var title, desc string
-		if err := rows.Scan(&it.name, &it.path, &title, &desc, &it.recency); err != nil {
+	defer q.Close()
+	for q.Next() {
+		var r ZoxRow
+		if err := q.Scan(&r.Name, &r.Path, &r.Title, &r.Desc, &r.Recency); err != nil {
 			return nil, 0, false
 		}
-		if it.name == "" {
+		if r.Name == "" {
 			continue
 		}
-		it.src = srcZoxide
-		it.kind = kindZoxide
-		it.title = title
-		if it.title == "" {
-			it.title = "[Zoxide] " + it.name
+		if r.Title == "" {
+			r.Title = "[Zoxide] " + r.Name
 		}
-		it.desc = desc
-		items = append(items, it)
+		rows = append(rows, r)
 	}
-	if err := rows.Err(); err != nil || len(items) == 0 {
+	if err := q.Err(); err != nil || len(rows) == 0 {
 		return nil, 0, false
 	}
-	return items, upd, true
+	return rows, upd, true
 }
 
-// SaveZoxItems replaces the zoxide item cache in one transaction.
-func (s *Store) SaveZoxItems(items []item) error {
+// SaveZox replaces the zoxide cache in one transaction.
+func (s *Store) SaveZox(rows []ZoxRow) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -649,13 +654,13 @@ ON CONFLICT(id) DO UPDATE SET updated = excluded.updated
 `, now); err != nil {
 		return err
 	}
-	for i, it := range items {
-		if it.name == "" {
+	for i, r := range rows {
+		if r.Name == "" {
 			continue
 		}
 		if _, err := tx.Exec(
 			`INSERT INTO zox_item(ord, name, path, title, desc, recency) VALUES(?,?,?,?,?,?)`,
-			i, it.name, it.path, it.title, it.desc, it.recency,
+			i, r.Name, r.Path, r.Title, r.Desc, r.Recency,
 		); err != nil {
 			return err
 		}

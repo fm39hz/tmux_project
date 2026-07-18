@@ -1,4 +1,4 @@
-package main
+package project
 
 import (
 	"os"
@@ -8,59 +8,19 @@ import (
 )
 
 // Project root markers — nearest walk-up wins (innermost).
-// Ordered only for readability; any hit stops the walk.
 var projectMarkers = []string{
-	// VCS
-	".git",
-	".jj",
-	".hg",
-	// JS / TS
-	"package.json",
-	"pnpm-workspace.yaml",
-	"turbo.json",
-	"nx.json",
-	"lerna.json",
-	"deno.json",
-	"deno.jsonc",
-	"bun.lock",
-	"bun.lockb",
-	// Go / Rust / C / C++
-	"go.mod",
-	"Cargo.toml",
-	"CMakeLists.txt",
-	"meson.build",
-	"Makefile",
-	"makefile",
-	// .NET
-	// (sln/csproj handled via ext walk below)
-	"global.json",
-	"Directory.Build.props",
-	// Python
-	"pyproject.toml",
-	"setup.py",
-	"requirements.txt",
-	"Pipfile",
-	"poetry.lock",
-	// JVM
-	"pom.xml",
-	"build.gradle",
-	"build.gradle.kts",
-	"settings.gradle",
-	"settings.gradle.kts",
-	// Ruby / PHP / Elixir
-	"Gemfile",
-	"composer.json",
-	"mix.exs",
-	// Godot / Unity-ish
-	"project.godot",
-	"ProjectSettings", // Unity (dir)
-	// Nix / misc
-	"flake.nix",
-	"shell.nix",
-	".envrc", // direnv often at project root
+	".git", ".jj", ".hg",
+	"package.json", "pnpm-workspace.yaml", "turbo.json", "nx.json", "lerna.json",
+	"deno.json", "deno.jsonc", "bun.lock", "bun.lockb",
+	"go.mod", "Cargo.toml", "CMakeLists.txt", "meson.build", "Makefile", "makefile",
+	"global.json", "Directory.Build.props",
+	"pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "poetry.lock",
+	"pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
+	"Gemfile", "composer.json", "mix.exs",
+	"project.godot", "ProjectSettings",
+	"flake.nix", "shell.nix", ".envrc",
 }
 
-// genericBases: basename alone collides often → prefix with parent.
 var genericBases = map[string]bool{
 	"app": true, "apps": true, "web": true, "www": true, "api": true,
 	"src": true, "lib": true, "core": true, "server": true, "client": true,
@@ -70,11 +30,10 @@ var genericBases = map[string]bool{
 	"game": true, "godot": true, "project": true, "src-tauri": true,
 }
 
-var projectRootMemo sync.Map // cleaned path → root
+var projectRootMemo sync.Map
 
-// findProjectRoot walks up from start to the nearest directory that looks
-// like a project root. If nothing matches, returns cleaned start (not /).
-func findProjectRoot(start string) string {
+// FindProjectRoot walks up from start to nearest project-looking directory.
+func FindProjectRoot(start string) string {
 	start = filepath.Clean(start)
 	if start == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -111,11 +70,10 @@ func findProjectRoot(start string) string {
 func isProjectRoot(dir string) bool {
 	for _, m := range projectMarkers {
 		p := filepath.Join(dir, m)
-		if fileExists(p) || dirExists(p) {
+		if FileExists(p) || DirExists(p) {
 			return true
 		}
 	}
-	// .NET: any *.sln or *.csproj in this directory only (not recursive)
 	if hasExtInDir(dir, ".sln") || hasExtInDir(dir, ".csproj") {
 		return true
 	}
@@ -139,17 +97,15 @@ func hasExtInDir(dir, ext string) bool {
 	return false
 }
 
-// projectSession resolves path → (session name, project root cwd).
-// Subdirs inside a repo map to the repo session, not a bogus "src" session.
-func projectSession(path string) (name, root string) {
-	root = findProjectRoot(path)
-	name = sessionName(root)
+// Session returns (session name, project root) for path.
+func Session(path string) (name, root string) {
+	root = FindProjectRoot(path)
+	name = SessionName(root)
 	return name, root
 }
 
-// sessionName: tmux-safe name from project root basename.
-// Generic basenames get parent prefix to cut collisions (web → org-web).
-func sessionName(root string) string {
+// SessionName: tmux-safe name from project root basename.
+func SessionName(root string) string {
 	root = filepath.Clean(root)
 	base := sanitizeSessionPart(filepath.Base(root))
 	if base == "" {
@@ -177,9 +133,32 @@ func sanitizeSessionPart(s string) string {
 			return -1
 		}
 	}, s)
-	// collapse --
 	for strings.Contains(s, "--") {
 		s = strings.ReplaceAll(s, "--", "-")
 	}
 	return strings.Trim(s, "-")
+}
+
+// ValidSessionName: tmux targets use "sess:win" — colon/control break them.
+func ValidSessionName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch r {
+		case ':', '\n', '\r', '\t':
+			return false
+		}
+	}
+	return true
+}
+
+func FileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
+}
+
+func DirExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }

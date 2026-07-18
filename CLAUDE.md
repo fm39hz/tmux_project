@@ -15,33 +15,36 @@ go run . -f                  # freeze active session → sqlite
 go run . -e [name]           # edit preset in $EDITOR
 go run . -h
 
-go test ./...                # integration tests — need live tmux server
-go test -run TestLoadGrimoireShape -v
-go test -run TestLoadKhoCongShape -v
+go test ./...
+go test ./internal/picker/ -run TestRank -v
 ```
 
-No Makefile, linter config, or CI. Tests spawn real sessions named `tp-test-*` and kill them; they fail if `tmux` is missing or the server is unreachable.
+No Makefile, linter config, or CI.
 
 ## Architecture
 
-Single `package main`. No subpackages.
+```
+main.go                CLI entry (flags, connect, freeze/edit)
+internal/
+  project/            project root walk + session name sanitize
+  store/              SQLite presets, usage, pairs, zox cache rows
+  tmux/               local tmux ctl (list/freeze/load/attach) + pane detect
+  template/           sticky templates + preset JSON format/parse/edit
+  picker/             Bubble Tea UI, Source registry, rank, zoxide source
+```
 
-| File | Role |
-|------|------|
-| `main.go` | CLI flags, `run()` / `connectItem()`, freeze/edit entry |
-| `ui.go` | Main Bubble Tea picker: item kinds, fuzzy filter, keybinds, in-TUI edit via `tea.ExecProcess` |
-| `pick.go` | Smaller picker used by `-f` (session name only) |
-| `tmuxctl.go` | `TmuxCtl` — list/kill/attach via gotmux; `Freeze` / `Load` via raw `tmux` commands |
-| `detect.go` | Pane cmd detection: `pane_current_command` else `/proc` child walk (Linux) |
-| `store.go` | SQLite schema + CRUD for presets (`session` / `window` / `pane`) |
-| `edit.go` | Human text format ↔ `Preset`; `$EDITOR` workflow for `-e` |
+### Sources (picker)
+
+`Source` = paint `Snapshot` + optional bg `Refresh`. Order (dedup first-wins): create → tmux → preset → zoxide.
+Add remote later: implement `Source`, register in `defaultSources`, connect by `Item.Src`/`Host`.
 
 ### Data flow
 
-1. **Picker items** (`collectItems`): `[Create]` from cwd project root → live tmux sessions → sqlite presets → zoxide paths. Dedup by session name.
-2. **Connect**: create/active/zoxide → empty or attach session; preset → `Load` (if missing) then attach/switch.
-3. **Freeze**: live session → `Freeze` (windows/panes/cwd/cmd) → `Store.Save`.
-4. **Load** mirrors tmuxp: `new-session` / `new-window` / `split-window -h` with optional cmd arg; pins window names (`automatic-rename off`); restores layout via `select-layout`.
+1. **Paint**: each Source.Snapshot (zoxide = DB/mem cache).
+2. **Refresh**: zoxide full `query -l` in background → merge pool (empty query still caps top 40).
+3. **Connect**: create/zoxide → template bake; active → attach; preset → Load+attach.
+4. **Freeze**: live → Freeze → Store.Save.
+5. **Load** mirrors tmuxp: new-session/window/split; pin names; select-layout.
 
 ### Preset model
 
@@ -67,7 +70,7 @@ pane: /path |
 
 ### Project root / session naming
 
-`findProjectRoot` walks up for `project.godot`, `.git`, `package.json`, `Cargo.toml`, `go.mod`. `sessionName` sanitizes basename to `[a-z0-9-]`.
+`project.FindProjectRoot` walks up for `project.godot`, `.git`, `package.json`, `Cargo.toml`, `go.mod`. `project.SessionName` sanitizes basename to `[a-z0-9-]`.
 
 ### External deps
 

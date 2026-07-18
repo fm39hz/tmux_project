@@ -1,9 +1,9 @@
-package main
+package store
 
 import "testing"
 
 func TestOpenStorePragma(t *testing.T) {
-	s, err := openStore()
+	s, err := Open()
 	if err != nil {
 		t.Fatal(err)
 	}
