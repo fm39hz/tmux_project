@@ -205,3 +205,47 @@ func TestFormatOmitsDupCwd(t *testing.T) {
 		t.Fatalf("pure no abs:\n%s", out2)
 	}
 }
+
+func TestToShapeStripsPathWindowNames(t *testing.T) {
+	p := &store.Preset{
+		Name: "sess", Cwd: "/home/u/proj",
+		Windows: []store.PresetWindow{
+			{Name: "editor", Panes: []store.PresetPane{{}}},
+			{Name: "/home/u/.cache/", Panes: []store.PresetPane{{Cmd: "claude"}}},
+		},
+	}
+	sh := ToShape(p, "x")
+	if sh.Windows[0].Name != "editor" {
+		t.Fatalf("role kept: %q", sh.Windows[0].Name)
+	}
+	if sh.Windows[1].Name != "w1" {
+		t.Fatalf("path window name must become w1, got %q", sh.Windows[1].Name)
+	}
+	out := Format(sh)
+	if strings.Contains(out, "/home/") {
+		t.Fatalf("must not leak home path:\n%s", out)
+	}
+}
+
+func TestShapeIDOpaque(t *testing.T) {
+	p := &store.Preset{
+		Cwd: "/home/leaky/user/proj",
+		Windows: []store.PresetWindow{
+			{Name: "/home/leaky/user/.cache/", Panes: []store.PresetPane{{Cmd: "claude"}}},
+			{Name: "shell", Panes: []store.PresetPane{{}}},
+		},
+	}
+	sh := ToShape(p, "tmp")
+	key := ShapeKey(sh)
+	id := shapeIDFrom(p, key)
+	if !strings.HasPrefix(id, "shape-") || len(id) != len("shape-")+16 {
+		t.Fatalf("opaque id want shape-<16hex>, got %q", id)
+	}
+	if strings.Contains(id, "home") || strings.Contains(id, "leak") || strings.Contains(id, "cache") {
+		t.Fatalf("id must not contain path tokens: %q", id)
+	}
+	out := Format(sh)
+	if strings.Contains(out, "/home/") || strings.Contains(out, "claude") {
+		t.Fatalf("body leak:\n%s", out)
+	}
+}

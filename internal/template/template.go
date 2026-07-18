@@ -174,10 +174,7 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 		out.Name = "shape"
 	}
 	for i, w := range p.Windows {
-		wname := w.Name
-		if wname == "" {
-			wname = fmt.Sprintf("w%d", i)
-		}
+		wname := roleWindowName(w.Name, i)
 		pw := store.PresetWindow{
 			Idx:    i,
 			Name:   wname,
@@ -202,6 +199,9 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 	return out
 }
 
+// ShapeKey fingerprints pure topology only:
+//   window count · per-window (pane count + relative cwds + layout kind)
+// Window *labels* are not part of the key (automatic-rename paths must not fork ids).
 func ShapeKey(p *store.Preset) string {
 	if p == nil {
 		return ""
@@ -211,9 +211,11 @@ func ShapeKey(p *store.Preset) string {
 		if i > 0 {
 			b.WriteByte('|')
 		}
-		b.WriteString(w.Name)
+		// index + layout + pane relative cwds only
+		b.WriteByte('#')
+		b.WriteString(fmt.Sprintf("%d", i))
 		b.WriteByte('@')
-		b.WriteString(w.Layout)
+		b.WriteString(normalizeLayoutKey(w.Layout))
 		b.WriteByte(':')
 		b.WriteString(w.Cwd)
 		for _, pn := range w.Panes {
@@ -225,31 +227,46 @@ func ShapeKey(p *store.Preset) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func shapeIDFrom(p *store.Preset, key string) string {
-	var parts []string
-	for _, w := range p.Windows {
-		n := sanitizeID(w.Name)
-		if n != "" {
-			parts = append(parts, n)
-		}
+// shapeIDFrom: stable opaque id from key only — never from window titles/paths.
+// "default" is reserved for builtin; all others shape-<16hex>.
+func shapeIDFrom(_ *store.Preset, key string) string {
+	if key == "" {
+		return "shape-0000000000000000"
 	}
-	if len(parts) > 0 {
-		base := strings.Join(parts, "-")
-		if len(base) > 40 {
-			base = base[:40]
-		}
-		return base
-	}
-	if len(key) >= 8 {
-		return "shape-" + key[:8]
-	}
-	return "shape"
+	// full 16 hex chars from ShapeKey (8 bytes)
+	return "shape-" + key
 }
 
-func sanitizeID(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
+// normalizeLayoutKey: named layouts stay; raw window_layout dumps collapse to "custom"
+// so tiny pixel diffs do not explode shape ids.
+func normalizeLayoutKey(layout string) string {
+	layout = strings.TrimSpace(layout)
+	if layout == "" {
+		return ""
+	}
+	if tmux.IsNamedLayout(layout) {
+		return layout
+	}
+	if tmux.IsLayoutDump(layout) {
+		return "custom"
+	}
+	return layout
+}
+
+// roleWindowName: keep short role labels (editor, shell); drop abs paths /
+// home leaks from automatic-rename (e.g. "/home/u/.cache/" → "w2").
+func roleWindowName(name string, idx int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Sprintf("w%d", idx)
+	}
+	if filepath.IsAbs(name) || strings.HasPrefix(name, "~/") || strings.Contains(name, "/home/") ||
+		strings.Contains(name, "/Users/") || strings.Count(name, "/") >= 2 {
+		return fmt.Sprintf("w%d", idx)
+	}
+	// only [a-z0-9-] roles, max 24
 	var b strings.Builder
-	for _, r := range s {
+	for _, r := range strings.ToLower(name) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
@@ -261,36 +278,32 @@ func sanitizeID(s string) string {
 	for strings.Contains(out, "--") {
 		out = strings.ReplaceAll(out, "--", "-")
 	}
+	if out == "" || len(out) > 24 {
+		return fmt.Sprintf("w%d", idx)
+	}
 	return out
 }
 
-// putShapeBoth: DB + config file 1-1 by id.
-// Dedupe: if key already in DB under any id, reuse that id (no second file).
-func putShapeBoth(st *store.Store, id string, pure *store.Preset) (outID string, created bool, err error) {
+// putShapeBoth: DB + config 1-1. id is always shape-<ShapeKey> (opaque).
+// Dedupe by key: reuse existing row id (should already be shape-<key>).
+func putShapeBoth(st *store.Store, _ string, pure *store.Preset) (outID string, created bool, err error) {
 	if pure == nil {
 		return "", false, fmt.Errorf("nil shape")
 	}
+	// normalize window roles before key so body and key match
 	key := ShapeKey(pure)
+	id := shapeIDFrom(pure, key) // shape-<16hex>
 	pure.Name = id
 	body := Format(pure)
-	// existing topology?
-	if existID, _, ok := st.GetShapeByKey(key); ok {
-		// keep existing id; refresh mirror file
-		if body2, ok := st.GetShape(existID); ok {
-			writeConfigMirror(existID, body2)
-		}
+	if existID, existBody, ok := st.GetShapeByKey(key); ok {
+		writeConfigMirror(existID, existBody)
 		return existID, false, nil
-	}
-	if id == "" {
-		id = shapeIDFrom(pure, key)
-		pure.Name = id
-		body = Format(pure)
 	}
 	outID, created, err = st.PutShape(id, key, body)
 	if err != nil {
 		return "", false, err
 	}
-	// if PutShape chose different id, re-format name
+	// force body name == outID
 	if outID != id {
 		pure.Name = outID
 		body = Format(pure)
@@ -351,19 +364,12 @@ func StickFrom(st *store.Store, p *store.Preset) (id string, created bool, err e
 	}
 	syncConfigToDB(st)
 	pure := ToShape(p, "tmp")
-	key := ShapeKey(pure)
-	id = shapeIDFrom(p, key)
-	pure.Name = id
-	body := Format(pure)
-	outID, created, err := st.StickShape(id, key, body)
+	outID, created, err := putShapeBoth(st, "", pure)
 	if err != nil {
 		return "", false, err
 	}
-	// post-commit mirror (best-effort; DB is source of truth if disk fails)
-	if b, ok := st.GetShape(outID); ok {
-		writeConfigMirror(outID, b)
-	} else {
-		writeConfigMirror(outID, body)
+	if err := st.SetSticky(outID); err != nil {
+		return "", false, err
 	}
 	return outID, created, nil
 }
@@ -374,19 +380,7 @@ func RememberShape(st *store.Store, p *store.Preset) (id string, created bool, e
 		return "", false, nil
 	}
 	syncConfigToDB(st)
-	pure := ToShape(p, "tmp")
-	key := ShapeKey(pure)
-	id = shapeIDFrom(p, key)
-	pure.Name = id
-	body := Format(pure)
-	outID, created, err := st.RememberShapeOnly(id, key, body)
-	if err != nil {
-		return "", false, err
-	}
-	if b, ok := st.GetShape(outID); ok {
-		writeConfigMirror(outID, b)
-	}
-	return outID, created, nil
+	return putShapeBoth(st, "", ToShape(p, "tmp"))
 }
 
 // FreezeSave: instance + shape in ONE DB transaction; then config mirror.
@@ -398,9 +392,10 @@ func FreezeSave(st *store.Store, p *store.Preset, setSticky bool) (shapeID strin
 	syncConfigToDB(st)
 	pure := ToShape(p, "tmp")
 	key := ShapeKey(pure)
-	id := shapeIDFrom(p, key)
+	id := shapeIDFrom(pure, key)
 	pure.Name = id
 	body := Format(pure)
+	// if key exists, SaveFreeze still updates preset instance; shape row reused
 	shapeID, shapeCreated, err = st.SaveFreeze(p, id, key, body, setSticky)
 	if err != nil {
 		return "", false, err

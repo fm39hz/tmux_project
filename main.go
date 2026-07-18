@@ -22,7 +22,11 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-f", "--freeze":
-			if err := freezeCLI(); err != nil {
+			fname := ""
+			if len(os.Args) > 2 {
+				fname = os.Args[2]
+			}
+			if err := freezeCLI(fname); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
@@ -42,7 +46,7 @@ func main() {
 
 Usage:
   gotomux              interactive picker
-  gotomux -f           freeze session (current if in tmux, else pick) → sqlite
+  gotomux -f [name]    freeze session (arg, else current, else pick) → sqlite
   gotomux -e [name]    edit preset in $EDITOR
 
 Keys (fzf-style combobox — type to filter anytime):
@@ -148,7 +152,7 @@ func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
 	return err
 }
 
-func freezeCLI() error {
+func freezeCLI(name string) error {
 	ctl, err := tmux.New()
 	if err != nil {
 		return err
@@ -159,7 +163,9 @@ func freezeCLI() error {
 	}
 	defer st.Close()
 
-	name := ctl.CurrentSession()
+	if name == "" {
+		name = ctl.CurrentSession()
+	}
 	if name == "" {
 		live, err := ctl.ListLive()
 		if err != nil {
