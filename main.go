@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,8 +18,11 @@ import (
 // version set by dist/PKGBUILD: -ldflags "-X main.version=..."
 var version = "dev"
 
-
 func main() {
+	// Ignore SIGINT (Ctrl+C): Bubble Tea handles ctrl+c as a key; a second
+	// SIGINT from spam must not kill the process mid-redraw (nu reports SIGINT).
+	signal.Ignore(os.Interrupt)
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "-f", "--freeze":
