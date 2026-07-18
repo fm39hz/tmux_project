@@ -8,26 +8,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// teaOpts: force /dev/tty so display-popup + default-shell=nu still get a real TTY.
-// Inside tmux (incl. popups) use alt-screen — more reliable than inline redraw there.
+// TeaOpts: force /dev/tty so display-popup + default-shell=nu still get a real TTY.
+// Always inline (no alt-screen): shell prompt / scrollback stay visible — fzf-style.
+// Quit path must ClearInline(FrameLines()) so the list does not linger.
 func TeaOpts() (opts []tea.ProgramOption, alt bool, err error) {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
-		// fall back to defaults (stdin/stdout) — works in a normal terminal
-		if os.Getenv("TMUX") != "" {
-			return []tea.ProgramOption{tea.WithAltScreen()}, true, nil
-		}
+		// stdin/stdout fallback — still inline
 		return nil, false, nil
 	}
-	opts = []tea.ProgramOption{
+	return []tea.ProgramOption{
 		tea.WithInput(tty),
 		tea.WithOutput(tty),
-	}
-	if os.Getenv("TMUX") != "" {
-		opts = append(opts, tea.WithAltScreen())
-		return opts, true, nil
-	}
-	return opts, false, nil
+	}, false, nil
 }
 
 // truncateRunes cuts s to at most n runes, adding "…" when clipped.
@@ -62,7 +55,7 @@ func isModifierChord(msg tea.KeyMsg) bool {
 	return false
 }
 
-// clearInline erases n lines of residual bubbletea inline UI (fzf-style).
+// ClearInline erases n lines of residual bubbletea inline UI (fzf-style).
 // Bubble Tea stop() only clears the current line — the rest stays in scrollback.
 func ClearInline(n int) {
 	if n <= 0 {
@@ -77,5 +70,11 @@ func ClearInline(n int) {
 		b.WriteString("\x1b[2K") // erase line
 	}
 	b.WriteByte('\r')
+	// prefer /dev/tty — same surface as WithOutput(tty)
+	if tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0); err == nil {
+		fmt.Fprint(tty, b.String())
+		tty.Close()
+		return
+	}
 	fmt.Fprint(os.Stdout, b.String())
 }

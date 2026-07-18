@@ -53,7 +53,6 @@ type model struct {
 }
 
 var (
-	stylePrompt = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
 	styleCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	// weight: Active strongest → Preset → Create → Zoxide dimmest
 	styleActive = lipgloss.NewStyle().Foreground(lipgloss.Color("15")) // bright white
@@ -375,14 +374,14 @@ func (m *model) reload() {
 	m.refilter()
 }
 
-// frameLines is fixed height of View — used to wipe residual UI after quit.
+// FrameLines is fixed height of View — wipe residual inline UI after quit.
 func (m model) FrameLines() int {
 	maxShow := m.maxShow
 	if maxShow <= 0 {
 		maxShow = 12
 	}
-	// prompt + header + list + status
-	return maxShow + 3
+	// filter+meta line + list + status
+	return maxShow + 2
 }
 
 type editDoneMsg struct {
@@ -467,20 +466,20 @@ func trimLastWord(s string) string {
 func (m model) View() string {
 	var b strings.Builder
 
-	// prompt line — fzf style
-	b.WriteString(stylePrompt.Render("❯ "))
+	// Filter line — fzf-like "> ", NOT shell ❯ (avoids double-prompt look under fish/starship).
+	// Shell chrome stays above; we only own the inline block below the real prompt.
+	b.WriteString(styleDim.Render("❯ "))
 	b.WriteString(m.query)
-	b.WriteString(styleDim.Render("█"))
-	b.WriteByte('\n')
+	// count + keys on same line as filter (compact, less "second shell")
+	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
 	if m.help {
-		b.WriteString(styleHeader.Render(fmt.Sprintf("  %d/%d  ^n/p · enter · ^t tmpl · ^x kill · ^f freeze · ^e edit · ^d del · esc · ?", len(m.view), m.totalCount())))
+		meta += "  ^n/p · enter · ^t tmpl · ^x kill · ^f freeze · ^e edit · ^d del · esc · ?"
+	} else if m.tmpl != "" && m.tmpl != "default" {
+		meta += "  tmpl:" + m.tmpl + "  enter · esc · ?"
 	} else {
-		head := fmt.Sprintf("  %d/%d  enter · esc · ?", len(m.view), m.totalCount())
-		if m.tmpl != "" && m.tmpl != "default" {
-			head = fmt.Sprintf("  %d/%d  tmpl:%s  enter · esc · ?", len(m.view), m.totalCount(), m.tmpl)
-		}
-		b.WriteString(styleHeader.Render(head))
+		meta += "  enter · esc · ?"
 	}
+	b.WriteString(styleHeader.Render(meta))
 	b.WriteByte('\n')
 
 	maxShow := m.maxShow
