@@ -206,3 +206,43 @@ func TestLoadKhoCongShape(t *testing.T) {
 		t.Errorf("shell pane paths: a=%v b=%v", hasA, hasB)
 	}
 }
+
+
+// Freeze often stores a middle window named like the session (cwd basename).
+// new-window -t bare name then fails with "index N in use".
+func TestLoadWindowNamedLikeSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("live tmux")
+	}
+	ctl, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "tp-test-ambig-name"
+	_ = ctl.Kill(name)
+	defer func() { _ = ctl.Kill(name) }()
+
+	root := "/tmp/tp-ambig"
+	_ = exec.Command("mkdir", "-p", root).Run()
+
+	p := &store.Preset{
+		Name: name,
+		Cwd:  root,
+		Windows: []store.PresetWindow{
+			{Name: "nvim", Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
+			{Name: name, Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
+			{Name: "pi", Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
+		},
+	}
+	if err := ctl.Load(p); err != nil {
+		t.Fatalf("load with window==session name: %v", err)
+	}
+	out, err := exec.Command("tmux", "list-windows", "-t", name, "-F", "#{window_index}:#{window_name}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want 3 windows, got %q", string(out))
+	}
+}

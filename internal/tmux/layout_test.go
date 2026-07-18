@@ -30,3 +30,23 @@ func TestLayoutNamedOnly(t *testing.T) {
 		t.Fatal("single pane no layout")
 	}
 }
+
+
+
+func TestSessionTargets(t *testing.T) {
+	if sessionTarget("bat-dong-san-web") != "=bat-dong-san-web:" {
+		t.Fatal(sessionTarget("bat-dong-san-web"))
+	}
+	if windowTarget("bat-dong-san-web", 2) != "=bat-dong-san-web:2" {
+		t.Fatal(windowTarget("bat-dong-san-web", 2))
+	}
+	if safeWindowName("bat-dong-san-web", "bat-dong-san-web") != "" {
+		t.Fatal("same-as-session name should be dropped")
+	}
+	if safeWindowName("nvim", "bat-dong-san-web") != "nvim" {
+		t.Fatal(safeWindowName("nvim", "bat-dong-san-web"))
+	}
+	if safeWindowName("/home/x/cache", "s") != "" {
+		t.Fatal("path name should be empty")
+	}
+}

@@ -296,8 +296,8 @@ func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 
 // Load mirrors tmuxp: create session/windows/splits, pin names, select-layout.
 // One tmux client process; "\;" separators.
-// Targets use window *index* (sess:N) with global base-index — never raw names
-// (path-like automatic-rename breaks targets: "can't find pane: cache/").
+// Targets: =sess: for new-window, =sess:N for window ops (base-index aware).
+// Never bare session/window-name targets (name collision / path rename breaks).
 func (c *Ctl) Load(p *store.Preset) error {
 	if !project.ValidSessionName(p.Name) {
 		return fmt.Errorf("invalid session name %q", p.Name)
@@ -321,9 +321,9 @@ func (c *Ctl) Load(p *store.Preset) error {
 
 	appendWin := func(i int, w store.PresetWindow, create []string) {
 		parts = append(parts, create)
-		t := sessionIndexTarget(p.Name, base+i)
+		t := windowTarget(p.Name, base+i)
 		parts = append(parts, []string{"set-option", "-t", t, "automatic-rename", "off"})
-		if safe := safeWindowName(w.Name); safe != "" {
+		if safe := safeWindowName(w.Name, p.Name); safe != "" {
 			parts = append(parts, []string{"rename-window", "-t", t, safe})
 		}
 		for _, pn := range w.Panes[1:] {
@@ -340,7 +340,7 @@ func (c *Ctl) Load(p *store.Preset) error {
 
 	w0, p0 := wins[0], wins[0].Panes[0]
 	ns := []string{"new-session", "-d", "-s", p.Name, "-c", p0.Cwd}
-	if safe := safeWindowName(w0.Name); safe != "" {
+	if safe := safeWindowName(w0.Name, p.Name); safe != "" {
 		ns = append(ns, "-n", safe)
 	}
 	if p0.Cmd != "" {
@@ -350,8 +350,8 @@ func (c *Ctl) Load(p *store.Preset) error {
 
 	for i, w := range wins[1:] {
 		pn := w.Panes[0]
-		nw := []string{"new-window", "-t", p.Name, "-d", "-c", pn.Cwd}
-		if safe := safeWindowName(w.Name); safe != "" {
+		nw := []string{"new-window", "-t", sessionTarget(p.Name), "-d", "-c", pn.Cwd}
+		if safe := safeWindowName(w.Name, p.Name); safe != "" {
 			nw = append(nw, "-n", safe)
 		}
 		if pn.Cmd != "" {
@@ -360,7 +360,7 @@ func (c *Ctl) Load(p *store.Preset) error {
 		appendWin(i+1, w, nw)
 	}
 
-	parts = append(parts, []string{"select-window", "-t", sessionIndexTarget(p.Name, base)})
+	parts = append(parts, []string{"select-window", "-t", windowTarget(p.Name, base)})
 
 	if err := c.runChain(parts...); err != nil {
 		_ = c.Kill(p.Name) // best-effort cleanup of half-created session
@@ -382,13 +382,22 @@ func (c *Ctl) windowBaseIndex() int {
 	return n
 }
 
-// sessionIndexTarget: sess:N — numeric, no slash issues.
-func sessionIndexTarget(session string, idx int) string {
-	return fmt.Sprintf("%s:%d", session, idx)
+// sessionTarget: "=name:" forces session context (never a window of same name).
+// Bare -t name is ambiguous when a window is named like the session
+// (freeze stores cwd basename / automatic-rename). new-window then hits
+// that window → "create window failed: index N in use".
+func sessionTarget(session string) string {
+	return "=" + session + ":"
 }
 
-// safeWindowName: empty if name would break tmux targets (paths, colons, etc.).
-func safeWindowName(name string) string {
+// windowTarget: "=name:N" — exact session + window index (base-index aware).
+func windowTarget(session string, idx int) string {
+	return fmt.Sprintf("=%s:%d", session, idx)
+}
+
+// safeWindowName: empty if name breaks targets or equals session name.
+// Equals session → drop so we never reintroduce -t ambiguity after rename.
+func safeWindowName(name, session string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ""
@@ -396,12 +405,15 @@ func safeWindowName(name string) string {
 	if filepath.IsAbs(name) || strings.ContainsAny(name, "/:\\") {
 		return ""
 	}
-	// still reject path-like multi-segment
 	if strings.Count(name, "/") >= 1 {
+		return ""
+	}
+	if session != "" && name == session {
 		return ""
 	}
 	return name
 }
+
 
 func normalizeWindows(wins []store.PresetWindow, sessCwd string) []store.PresetWindow {
 	if len(wins) == 0 {
