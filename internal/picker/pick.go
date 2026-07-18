@@ -2,8 +2,6 @@ package picker
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
 	"strings"
 	"unicode"
 
@@ -25,37 +23,10 @@ func Pick(names []string) (string, error) {
 	}
 	m := pickModel{all: names}
 	m.refilter()
-
-	// Own SIGINT for pick lifetime — same cancel intent as esc/ctrl+c KeyMsg.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
 	p := tea.NewProgram(m, tea.WithoutSignalHandler())
-	sigDone := make(chan struct{})
-	go func() {
-		select {
-		case <-sigCh:
-			p.Quit()
-		case <-sigDone:
-		}
-	}()
-	final, err := p.Run()
-	close(sigDone)
-	signal.Stop(sigCh)
-	// drain pending SIGINT so disposition is clean for caller
-	for {
-		select {
-		case <-sigCh:
-			continue
-		default:
-		}
-		break
-	}
-
-	if err != nil && err != tea.ErrInterrupted {
+	final, err := RunCancellable(p)
+	if err != nil {
 		return "", fmt.Errorf("pick: %w", err)
-	}
-	if err == tea.ErrInterrupted {
-		return "", nil
 	}
 	pm, ok := final.(pickModel)
 	if !ok {

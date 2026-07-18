@@ -146,6 +146,21 @@ func Parse(text string) (*store.Preset, error) {
 	return p, nil
 }
 
+// CommitEdit saves preset and, on rename, deletes old name + rebinds ranking telemetry.
+func CommitEdit(st *store.Store, oldName string, np *store.Preset) error {
+	if st == nil || np == nil {
+		return fmt.Errorf("commit edit: nil store or preset")
+	}
+	if err := st.Save(np); err != nil {
+		return err
+	}
+	if oldName != "" && np.Name != oldName {
+		_ = st.Delete(oldName)
+		_ = st.RebindName(oldName, np.Name)
+	}
+	return nil
+}
+
 // Edit opens preset JSON in $EDITOR (or nvim).
 // For tmux binds: use display-popup so the editor has a TTY; -e defaults to current session in main.
 func Edit(st *store.Store, name string, pick func([]string) (string, error)) error {
@@ -208,12 +223,8 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 	if err != nil {
 		return fmt.Errorf("parse: %w", err)
 	}
-	if err := st.Save(np); err != nil {
+	if err := CommitEdit(st, oldName, np); err != nil {
 		return err
-	}
-	if np.Name != oldName {
-		_ = st.Delete(oldName)
-		_ = st.RebindName(oldName, np.Name) // ranking telemetry follows rename
 	}
 	outDir, _ := store.DataDir()
 	fmt.Println("saved", np.Name, "→", filepath.Join(outDir, "state.db"))

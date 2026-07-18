@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -105,26 +104,11 @@ func runPicker() error {
 		return err
 	}
 
-	// --- phase: picker owns SIGINT ---
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
 	p := tea.NewProgram(m, opts...)
-
-	// SIGINT → same intent as Esc / ctrl+c key: quit without connect.
-	sigDone := make(chan struct{})
-	go func() {
-		select {
-		case <-sigCh:
-			p.Quit()
-		case <-sigDone:
-		}
-	}()
-
-	final, runErr := p.Run()
-	close(sigDone)
-	signal.Stop(sigCh)
-	// drain any pending SIGINT so disposition is clean for shell after exit
-	drainSignals(sigCh)
+	final, runErr := picker.RunCancellable(p)
+	if runErr != nil {
+		return runErr
+	}
 
 	if fm, ok := final.(interface {
 		Done() picker.Result
@@ -133,40 +117,17 @@ func runPicker() error {
 		if !alt {
 			picker.ClearInline(fm.FrameLines())
 		}
-		// cancel intents → exit 0
-		if runErr != nil {
-			if errors.Is(runErr, tea.ErrInterrupted) {
-				return errCancel
-			}
-			return runErr
-		}
 		res := fm.Done()
 		switch res.Action {
 		case picker.ActionConnect:
-			// --- phase: connect — SIGINT back to default (user may kill stuck attach) ---
+			// --- phase: connect — SIGINT default (user may kill stuck attach) ---
 			return connectItem(ctl, st, res.Item)
 		default:
 			// ActionQuit / ActionNone = user cancel
 			return errCancel
 		}
 	}
-	if runErr != nil {
-		if errors.Is(runErr, tea.ErrInterrupted) {
-			return errCancel
-		}
-		return runErr
-	}
 	return errCancel
-}
-
-func drainSignals(ch <-chan os.Signal) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
 }
 
 func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
@@ -248,17 +209,11 @@ func freezeCLI(name string) error {
 		}
 	}
 
-	// --- ACID: freeze + save must not be half-killed by SIGINT spam ---
 	stop := picker.HoldInterrupt()
-	p, err := ctl.Freeze(name)
-	if err != nil {
-		stop()
-		return fmt.Errorf("freeze %q: %w", name, err)
-	}
-	sid, created, err := template.FreezeSave(st, p, false)
+	sid, created, err := template.FreezeRemember(ctl, st, name)
 	stop()
 	if err != nil {
-		return fmt.Errorf("save freeze %q: %w", name, err)
+		return fmt.Errorf("freeze %q: %w", name, err)
 	}
 	dir, err := store.DataDir()
 	if err != nil {
@@ -303,16 +258,11 @@ func editCLI(name string) error {
 			return fmt.Errorf("preset %q not found and tmux unavailable: %v", name, ctlErr)
 		}
 		stop := picker.HoldInterrupt()
-		p, err := ctl.Freeze(name)
+		_, _, err := template.FreezeRemember(ctl, st, name)
+		stop()
 		if err != nil {
-			stop()
 			return fmt.Errorf("freeze %q for edit: %w", name, err)
 		}
-		if _, _, err := template.FreezeSave(st, p, false); err != nil {
-			stop()
-			return fmt.Errorf("save freeze for edit: %w", err)
-		}
-		stop()
 	}
 	// Editor phase: default SIGINT (user cancels inside nvim)
 	if err := template.Edit(st, name, picker.Pick); err != nil {
@@ -320,4 +270,3 @@ func editCLI(name string) error {
 	}
 	return nil
 }
-

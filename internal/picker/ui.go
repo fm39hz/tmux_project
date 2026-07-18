@@ -300,13 +300,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				name := it.Name
 				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(name)) {
 					stop := HoldInterrupt()
-					p, err := m.ctl.Freeze(name)
-					if err != nil {
-						stop()
-						m.status = err.Error()
-						return m, nil
-					}
-					sid, created, err := template.FreezeSave(m.store, p, false)
+					sid, created, err := template.FreezeRemember(m.ctl, m.store, name)
 					stop()
 					if err != nil {
 						m.status = err.Error()
@@ -334,13 +328,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch it.Kind {
 			case KindActive:
 				stop := HoldInterrupt()
-				p, err := m.ctl.Freeze(it.Name)
-				if err != nil {
-					stop()
-					m.status = err.Error()
-					return m, nil
-				}
-				_, _, err = template.FreezeSave(m.store, p, false)
+				_, _, err := template.FreezeRemember(m.ctl, m.store, it.Name)
 				stop()
 				if err != nil {
 					m.status = err.Error()
@@ -484,15 +472,11 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 			return editDoneMsg{err: fmt.Errorf("parse: %w", err)}
 		}
 		stop := HoldInterrupt()
-		if err := st.Save(np); err != nil {
-			stop()
+		err = template.CommitEdit(st, old, np)
+		stop()
+		if err != nil {
 			return editDoneMsg{err: err}
 		}
-		if np.Name != old {
-			_ = st.Delete(old)
-			_ = st.RebindName(old, np.Name)
-		}
-		stop()
 		return editDoneMsg{name: np.Name}
 	}), nil
 }
