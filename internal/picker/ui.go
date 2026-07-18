@@ -459,11 +459,10 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 	m.editOld = name
 
 	c := editorCmd(path)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-
-	store := m.store
+	if c.Stdin == nil {
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	}
+	st := m.store
 	old := name
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		defer os.Remove(path)
@@ -478,23 +477,19 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 		if err != nil {
 			return editDoneMsg{err: fmt.Errorf("parse: %w", err)}
 		}
-		if err := store.Save(np); err != nil {
+		if err := st.Save(np); err != nil {
 			return editDoneMsg{err: err}
 		}
 		if np.Name != old {
-			_ = store.Delete(old)
+			_ = st.Delete(old)
 		}
 		return editDoneMsg{name: np.Name}
 	}), nil
 }
 
 
-// editorCmd opens path in $EDITOR, or nvim --server $NVIM when already inside nvim.
+// editorCmd opens path in $EDITOR (default nvim).
 func editorCmd(path string) *exec.Cmd {
-	if srv := os.Getenv("NVIM"); srv != "" {
-		// open in existing nvim (new buffer); wait until buffer wiped/closed via --remote-wait
-		return exec.Command("nvim", "--server", srv, "--remote-wait", path)
-	}
 	ed := os.Getenv("EDITOR")
 	if ed == "" {
 		ed = os.Getenv("VISUAL")

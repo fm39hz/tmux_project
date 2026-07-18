@@ -146,6 +146,8 @@ func Parse(text string) (*store.Preset, error) {
 	return p, nil
 }
 
+// Edit opens preset JSON in $EDITOR (or nvim).
+// For tmux binds: use display-popup so the editor has a TTY; -e defaults to current session in main.
 func Edit(st *store.Store, name string, pick func([]string) (string, error)) error {
 	var p *store.Preset
 	var err error
@@ -191,7 +193,6 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 	tmp.Close()
 
 	cmd := editorCommand(path)
-	// editorCommand already attaches /dev/tty when present (tmux run-shell / popup)
 	if cmd.Stdin == nil {
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	}
@@ -219,24 +220,19 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 }
 
 func editorCommand(path string) *exec.Cmd {
-	var cmd *exec.Cmd
-	if srv := os.Getenv("NVIM"); srv != "" {
-		cmd = exec.Command("nvim", "--server", srv, "--remote-wait", path)
-	} else {
-		ed := os.Getenv("EDITOR")
-		if ed == "" {
-			ed = os.Getenv("VISUAL")
-		}
-		if ed == "" {
-			ed = "nvim"
-		}
-		if fields := strings.Fields(ed); len(fields) > 1 {
-			cmd = exec.Command(fields[0], append(fields[1:], path)...)
-		} else {
-			cmd = exec.Command(ed, path)
-		}
+	ed := os.Getenv("EDITOR")
+	if ed == "" {
+		ed = os.Getenv("VISUAL")
 	}
-	// tmux run-shell: stdin is not a TTY — attach controlling terminal when possible
+	if ed == "" {
+		ed = "nvim"
+	}
+	var cmd *exec.Cmd
+	if fields := strings.Fields(ed); len(fields) > 1 {
+		cmd = exec.Command(fields[0], append(fields[1:], path)...)
+	} else {
+		cmd = exec.Command(ed, path)
+	}
 	if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
 		cmd.Stdin = tty
 		cmd.Stdout = tty
