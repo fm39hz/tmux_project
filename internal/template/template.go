@@ -278,13 +278,8 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 		if n == 0 {
 			n = 1
 		}
-		wname := roleWindowName(w.Name, i)
-		if wname != "" && (wname == sess || w.Name == sess || (base != "" && (wname == base || w.Name == base))) {
-			wname = fmt.Sprintf("w%d", i)
-		}
 		pw := store.PresetWindow{
 			Idx:    i,
-			Name:   wname,
 			Layout: tmux.LayoutForShape(w.Layout, n),
 		}
 		pw.Panes = make([]store.PresetPane, n)
@@ -294,6 +289,8 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 				pw.Panes[j].Cmd = tmux.ToolIntent(w.Panes[j].Cmd)
 			}
 		}
+		// chrome only — not identity (ShapeKey/fork ignore Name)
+		pw.Name = windowChromeRole(w.Name, pw, i, sess, base)
 		out.Windows = append(out.Windows, pw)
 	}
 	if len(out.Windows) == 0 {
@@ -348,8 +345,6 @@ func shapeIDFrom(_ *store.Preset, key string) string {
 }
 
 
-// roleWindowName: keep short role labels (editor, shell); drop abs paths /
-// home leaks from automatic-rename (e.g. "/home/u/.cache/" → "w2").
 
 // normalizeShapeBody rewrites legacy/dump bodies into product shape JSON.
 func normalizeShapeBody(id, body string) string {
@@ -370,16 +365,75 @@ func mustParseShape(id, body string) *store.Preset {
 	return ToShape(p, id)
 }
 
-func roleWindowName(name string, idx int) string {
+// windowChromeRole: display role only (not ShapeKey/fork identity).
+// Prefer tool→role; else neutral role slug; never path/session/project basename.
+func windowChromeRole(raw string, w store.PresetWindow, idx int, sess, projBase string) string {
+	n := len(w.Panes)
+	if n == 0 {
+		n = 1
+	}
+	// 1) tool intent → portable chrome
+	if role := roleFromTools(w); role != "" {
+		return role
+	}
+	// 2) cleaned neutral role from live name
+	if role := neutralRoleSlug(raw); role != "" {
+		if role == sess || role == projBase {
+			return defaultChrome(n)
+		}
+		return role
+	}
+	return defaultChrome(n)
+}
+
+func roleFromTools(w store.PresetWindow) string {
+	var tools []string
+	seen := map[string]bool{}
+	for _, pn := range w.Panes {
+		t := tmux.ToolIntent(pn.Cmd)
+		if t == "" || seen[t] {
+			continue
+		}
+		seen[t] = true
+		tools = append(tools, t)
+	}
+	if len(tools) == 0 {
+		return ""
+	}
+	if len(tools) > 1 {
+		// mixed pane tools — first wins for tab title
+		return chromeFromTool(tools[0])
+	}
+	return chromeFromTool(tools[0])
+}
+
+func chromeFromTool(tool string) string {
+	switch tool {
+	case "nvim", "vim", "vi", "hx", "helix", "emacs", "nano", "micro":
+		return "editor"
+	case "yazi", "lf", "ranger", "nnn", "broot":
+		return "files"
+	case "lazygit", "gitui", "tig":
+		return "git"
+	case "opencode", "claude", "codex", "aider", "pi":
+		return tool // multi-agent: glance by tool name
+	default:
+		if len(tool) <= 16 {
+			return tool
+		}
+		return "shell"
+	}
+}
+
+func neutralRoleSlug(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Sprintf("w%d", idx)
+		return ""
 	}
 	if filepath.IsAbs(name) || strings.HasPrefix(name, "~/") || strings.Contains(name, "/home/") ||
-		strings.Contains(name, "/Users/") || strings.Count(name, "/") >= 2 {
-		return fmt.Sprintf("w%d", idx)
+		strings.Contains(name, "/Users/") || strings.Count(name, "/") >= 1 {
+		return ""
 	}
-	// only [a-z0-9-] roles, max 24
 	var b strings.Builder
 	for _, r := range strings.ToLower(name) {
 		switch {
@@ -394,10 +448,33 @@ func roleWindowName(name string, idx int) string {
 		out = strings.ReplaceAll(out, "--", "-")
 	}
 	if out == "" || len(out) > 24 {
-		return fmt.Sprintf("w%d", idx)
+		return ""
 	}
-	return out
+	switch out {
+	case "editor", "shell", "files", "file", "term", "terminal", "main", "aux", "test", "git", "agent":
+		if out == "file" {
+			return "files"
+		}
+		if out == "term" || out == "terminal" {
+			return "shell"
+		}
+		if out == "agent" {
+			return "agent"
+		}
+		return out
+	default:
+		// project-ish or custom — not portable chrome
+		return ""
+	}
 }
+
+func defaultChrome(nPanes int) string {
+	if nPanes > 1 {
+		return "shell"
+	}
+	return "shell"
+}
+
 
 // shapeBody prepares pure shape id/key/body for DB.
 // default builtin keeps id "default"; everything else is shape-<key>.

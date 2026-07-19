@@ -250,7 +250,8 @@ func (s *Store) PutShape(id, key, body string) (outID string, created bool, err 
 }
 
 // UpsertShapeByID writes/updates shape at stable id (hand-edit / re-export path).
-// Also updates key to match body fingerprint.
+// If another row already owns the same topology key, keep the existing id (dedupe)
+// and drop the duplicate id (rewire sticky/placement).
 func (s *Store) UpsertShapeByID(id, key, body string) error {
 	if id == "" || body == "" {
 		return fmt.Errorf("shape id and body required")
@@ -259,6 +260,15 @@ func (s *Store) UpsertShapeByID(id, key, body string) error {
 		key = id
 	}
 	now := time.Now().Unix()
+	if exist, _, ok := s.GetShapeByKey(key); ok && exist != id {
+		// same essence under two ids → keep exist, merge pointers, delete id
+		_, _ = s.db.Exec(`UPDATE shape SET body = ?, updated_at = ? WHERE id = ?`, body, now, exist)
+		_, _ = s.db.Exec(`UPDATE sticky SET shape_id = ? WHERE shape_id = ?`, exist, id)
+		// drop placement rows for duplicate id (patterns may already exist under exist)
+		_, _ = s.db.Exec(`DELETE FROM placement WHERE shape_id = ?`, id)
+		_, _ = s.db.Exec(`DELETE FROM shape WHERE id = ?`, id)
+		return nil
+	}
 	_, err := s.db.Exec(`
 INSERT INTO shape(id, key, body, created_at, updated_at) VALUES(?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET

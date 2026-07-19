@@ -290,8 +290,13 @@ func TestToShapeStripsPathWindowNames(t *testing.T) {
 	if sh.Windows[0].Name != "editor" {
 		t.Fatalf("role kept: %q", sh.Windows[0].Name)
 	}
-	if sh.Windows[1].Name != "w1" {
-		t.Fatalf("path window name must become w1, got %q", sh.Windows[1].Name)
+	// path name dropped; tool intent → chrome role
+	if sh.Windows[1].Name != "claude" && sh.Windows[1].Name != "editor" {
+		// claude is multi-agent tool chrome (kept as tool name)
+		t.Fatalf("path chrome: got %q", sh.Windows[1].Name)
+	}
+	if sh.Windows[1].Name == "w1" {
+		t.Fatal("should infer from tool, not wN when cmd present")
 	}
 	out := Format(sh)
 	if strings.Contains(out, "/home/") {
@@ -322,5 +327,24 @@ func TestShapeIDOpaque(t *testing.T) {
 	}
 	if !strings.Contains(out, `"cmd": "claude"`) {
 		t.Fatalf("tool intent must remain:\n%s", out)
+	}
+}
+
+func TestWindowChromeFromTools(t *testing.T) {
+	sh := ToShape(&store.Preset{
+		Name: "proj", Cwd: "/work/proj",
+		Windows: []store.PresetWindow{
+			{Name: "proj", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // session-like name → editor via tool
+			{Name: "cong", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // branch label → editor via tool
+			{Name: "whatever", Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
+			{Name: "/home/x/.cache/", Panes: []store.PresetPane{{Cmd: "yazi"}}},
+			{Name: "opencode", Panes: []store.PresetPane{{Cmd: "opencode"}}},
+		},
+	}, "s")
+	want := []string{"editor", "editor", "shell", "files", "opencode"}
+	for i, w := range want {
+		if sh.Windows[i].Name != w {
+			t.Fatalf("win%d: got %q want %q", i, sh.Windows[i].Name, w)
+		}
 	}
 }
