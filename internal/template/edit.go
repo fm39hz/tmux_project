@@ -13,26 +13,26 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// JSON edit format (pretty-printed for $EDITOR):
+// JSON format for shapes/presets — human product vocabulary only.
+//
+// Shape (essence — freeze/sticky mirror under shapes/<id>.json):
 //
 //	{
-//	  "name": "my-session",
-//	  "cwd": "/path",
+//	  "name": "shape-…",
 //	  "windows": [
-//	    {
-//	      "name": "editor",
-//	      "cwd": "/path",
-//	      "layout": "even-horizontal",
-//	      "panes": [
-//	        {"cwd": "/path", "cmd": "nvim"},
-//	        {"cwd": "/path"}
-//	      ]
-//	    }
+//	    {"name": "editor", "panes": [{"cmd": "nvim"}]},
+//	    {"name": "shell", "split": "even-vertical", "panes": [{}, {}]},
+//	    {"name": "yazi", "panes": [{"cmd": "yazi"}]}
 //	  ]
 //	}
 //
-// layout: named (even-horizontal|…) or tmux window_layout dump from freeze.
-// empty/missing → even-horizontal when panes > 1.
+//	split: even-horizontal | even-vertical | main-* | tiled
+//	       omit → bake infers even-horizontal when panes > 1
+//	cmd:   tool intent on that pane (nvim, yazi, opencode, …); omit = shell
+//	never: tmux dump strings, abs paths, % ratios, cwd on pure shapes
+//
+// Instance presets may add "cwd" for restore-that-session only.
+// Legacy key "layout" accepted on parse; dumps classified to split class.
 
 type presetJSON struct {
 	Name    string       `json:"name"`
@@ -41,10 +41,12 @@ type presetJSON struct {
 }
 
 type windowJSON struct {
-	Name   string     `json:"name,omitempty"`
-	Cwd    string     `json:"cwd,omitempty"`
-	Layout string     `json:"layout,omitempty"`
-	Panes  []paneJSON `json:"panes"`
+	Name  string     `json:"name,omitempty"`
+	Cwd   string     `json:"cwd,omitempty"`
+	Split string     `json:"split,omitempty"`
+	// legacyLayout accepts old hand-edits / mirrors that still say "layout".
+	LegacyLayout string     `json:"layout,omitempty"`
+	Panes        []paneJSON `json:"panes"`
 }
 
 type paneJSON struct {
@@ -52,9 +54,16 @@ type paneJSON struct {
 	Cmd string `json:"cmd,omitempty"`
 }
 
+func (w windowJSON) splitValue() string {
+	if w.Split != "" {
+		return w.Split
+	}
+	return w.LegacyLayout
+}
+
 // Format writes compact JSON for edit/hand-edit.
 // Omits cwd when it equals session root (or empty for pure shapes).
-// Pure shapes (no abs root): empty pane cwd omitted; cmds stripped by ToShape before Format.
+// Window split uses product key "split" (not tmux's "layout").
 func Format(p *store.Preset) string {
 	root := p.Cwd
 	j := presetJSON{Name: p.Name}
@@ -63,10 +72,9 @@ func Format(p *store.Preset) string {
 	}
 	for _, w := range p.Windows {
 		wj := windowJSON{
-			Name:   w.Name,
-			Layout: tmux.LayoutForStore(w.Layout, len(w.Panes)),
+			Name:  w.Name,
+			Split: tmux.LayoutForShape(w.Layout, len(w.Panes)),
 		}
-		// window cwd only if different from session root
 		if w.Cwd != "" && w.Cwd != root {
 			wj.Cwd = w.Cwd
 		}
@@ -80,7 +88,6 @@ func Format(p *store.Preset) string {
 			if cwd == "" {
 				cwd = w.Cwd
 			}
-			// omit cwd when same as session root or empty (shape relative "")
 			if cwd != "" && cwd != root {
 				pj.Cwd = cwd
 			}
@@ -111,14 +118,24 @@ func Parse(text string) (*store.Preset, error) {
 	}
 	p := &store.Preset{Name: j.Name, Cwd: j.Cwd}
 	for i, w := range j.Windows {
-		if w.Layout != "" && !tmux.IsNamedLayout(w.Layout) && !tmux.IsLayoutDump(w.Layout) {
-			return nil, fmt.Errorf("window %d: layout %q (use named layout or tmux window_layout dump)", i, w.Layout)
+		nPanes := len(w.Panes)
+		if nPanes == 0 {
+			nPanes = 1
+		}
+		split := w.splitValue()
+		if split != "" && !tmux.IsNamedLayout(split) {
+			// tmux dump → portable class; never keep pixel soup in product format
+			if tmux.IsLayoutDump(split) {
+				split = tmux.LayoutForShape(split, nPanes)
+			} else {
+				return nil, fmt.Errorf("window %d: split %q (even-horizontal|even-vertical|main-*|tiled or omit)", i, split)
+			}
 		}
 		pw := store.PresetWindow{
 			Idx:    i,
 			Name:   w.Name,
 			Cwd:    w.Cwd,
-			Layout: w.Layout,
+			Layout: split,
 		}
 		if len(w.Panes) == 0 {
 			cwd := w.Cwd
@@ -239,16 +256,8 @@ func editorCommand(path string) *exec.Cmd {
 	if ed == "" {
 		ed = "nvim"
 	}
-	var cmd *exec.Cmd
 	if fields := strings.Fields(ed); len(fields) > 1 {
-		cmd = exec.Command(fields[0], append(fields[1:], path)...)
-	} else {
-		cmd = exec.Command(ed, path)
+		return exec.Command(fields[0], append(fields[1:], path)...)
 	}
-	if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
-		cmd.Stdin = tty
-		cmd.Stdout = tty
-		cmd.Stderr = tty
-	}
-	return cmd
+	return exec.Command(ed, path)
 }

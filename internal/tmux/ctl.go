@@ -27,7 +27,7 @@ func IsLayoutDump(s string) bool {
 	return strings.Contains(s, ",") && (strings.Contains(s, "{") || strings.Contains(s, "[") || strings.Contains(s, "x"))
 }
 
-// LayoutForStore: named layouts + raw window_layout dumps.
+// LayoutForStore: instance freeze may keep named or raw dump.
 func LayoutForStore(layout string, nPanes int) string {
 	if nPanes <= 1 || layout == "" {
 		return ""
@@ -38,16 +38,63 @@ func LayoutForStore(layout string, nPanes int) string {
 	return ""
 }
 
-// LayoutForBake: apply stored layout; multi-pane empty → even-horizontal.
-func LayoutForBake(layout string, nPanes int) string {
+// LayoutForShape: product split essence only — no pixel dumps, no ratios.
+//
+//	named → keep
+//	dump  → axis/grid class (even-horizontal | even-vertical | tiled)
+//	else  → "" (InferSplit defaults even-horizontal)
+//
+// Essence = how panes nest, not sizes/tools/paths.
+func LayoutForShape(layout string, nPanes int) string {
 	if nPanes <= 1 {
 		return ""
 	}
-	if layout != "" {
+	if IsNamedLayout(layout) {
 		return layout
+	}
+	if IsLayoutDump(layout) {
+		return classifyDump(layout)
+	}
+	return ""
+}
+
+// classifyDump maps tmux window_layout to a portable named split.
+// { = horizontal cuts, [ = vertical cuts; both → tiled (nested grid).
+func classifyDump(dump string) string {
+	h := strings.Contains(dump, "{")
+	v := strings.Contains(dump, "[")
+	switch {
+	case h && v:
+		return "tiled"
+	case v:
+		return "even-vertical"
+	case h:
+		return "even-horizontal"
+	default:
+		return "even-horizontal"
+	}
+}
+
+// InferSplit materialises concrete split at bake (shape→instance), not Load.
+// multi-pane + empty → even-horizontal.
+func InferSplit(layout string, nPanes int) string {
+	if nPanes <= 1 {
+		return ""
+	}
+	if IsNamedLayout(layout) {
+		return layout
+	}
+	if IsLayoutDump(layout) {
+		return classifyDump(layout)
 	}
 	return "even-horizontal"
 }
+
+// LayoutForBake: legacy alias → InferSplit (bake-time only).
+func LayoutForBake(layout string, nPanes int) string {
+	return InferSplit(layout, nPanes)
+}
+
 
 type Ctl struct {
 	t *gotmux.Tmux
@@ -294,10 +341,10 @@ func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 	return p, nil
 }
 
-// Load mirrors tmuxp: create session/windows/splits, pin names, select-layout.
+// Load executes a materialised preset only — no topology/placement inference.
+// Inference (even split, R/Ck cwd) happens at bake (shape→instance) before Load.
 // One tmux client process; "\;" separators.
 // Targets: =sess: for new-window, =sess:N for window ops (base-index aware).
-// Never bare session/window-name targets (name collision / path rename breaks).
 func (c *Ctl) Load(p *store.Preset) error {
 	if !project.ValidSessionName(p.Name) {
 		return fmt.Errorf("invalid session name %q", p.Name)
@@ -333,8 +380,9 @@ func (c *Ctl) Load(p *store.Preset) error {
 			}
 			parts = append(parts, sp)
 		}
-		if layout := LayoutForBake(w.Layout, len(w.Panes)); layout != "" {
-			parts = append(parts, []string{"select-layout", "-t", t, layout})
+		// Load executes only — split already materialised at bake/freeze.
+		if w.Layout != "" {
+			parts = append(parts, []string{"select-layout", "-t", t, w.Layout})
 		}
 	}
 

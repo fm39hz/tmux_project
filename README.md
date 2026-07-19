@@ -3,7 +3,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/fm39hz/gotomux/ci.yml?branch=master&style=flat-square)](https://github.com/fm39hz/gotomux/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 
-**go to mux**, (yet) another fuzzy [tmux](https://github.com/tmux/tmux) session picker: live sessions, SQLite presets, optional [zoxide](https://github.com/ajeetdsouza/zoxide) paths, sticky templates. It help you to jump right into your work, then let tmux do its best on the rest of your workflow.
+**go to mux**, (yet) another fuzzy [tmux](https://github.com/tmux/tmux) session picker: live sessions, SQLite presets, optional [zoxide](https://github.com/ajeetdsouza/zoxide) paths, sticky shapes. It help you to jump right into your work, then let tmux do its best on the rest of your workflow.
 
 ## Install
 
@@ -67,15 +67,16 @@ gotomux -h          # help
 | Create / Zoxide | live → same-name preset → sticky shape @ project root |
 
 State: `$XDG_DATA_HOME/gotomux/state.db` (presets · shapes · sticky · usage)  
-Layouts: `$XDG_CONFIG_HOME/gotomux/layouts/<id>.json`, 1-1 reflect with DB (backup / git / hand-edit)
+Shapes: `$XDG_CONFIG_HOME/gotomux/shapes/<id>.json`, 1-1 with DB (backup / git / hand-edit)
 
 ## Roadmap
 
 Local first.
 
 - [x] Picker sources: create · tmux · preset · zoxide
-- [x] Freeze / load, sticky templates, rank + accent fold
+- [x] Freeze / load, sticky shapes, rank + accent fold
 - [x] `go install` / CI / local Arch package
+- [ ] Has smooth everyday usage until boring
 - [ ] Remote tmux as one pool (`tmux@host`; server: tmux + ssh only)
 - [ ] AUR publish
 

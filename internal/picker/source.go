@@ -141,7 +141,7 @@ func (s *presetSource) Snapshot() []Item {
 			Src:     SrcPreset,
 			Kind:    KindPreset,
 			Title:   fmt.Sprintf("[Preset] %s", m.Name),
-			Desc:    "saved layout",
+			Desc:    "saved preset",
 			Name:    m.Name,
 			Path:    m.Cwd,
 			Recency: m.LastUsed,

@@ -87,6 +87,16 @@ func detectPaneCmd(currentCmd, startCmd string, pid int32, procs *procIndex) str
 	return procs.findTool(int(pid), 4)
 }
 
+// ToolIntent: pane role tool (nvim, yazi, …). Empty = default shell.
+// Not project essence — workflow intent attached to a pane slot.
+func ToolIntent(cmd string) string {
+	base := binBase(cmd)
+	if base == "" || shellNames[base] {
+		return ""
+	}
+	return base
+}
+
 func binBase(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
 	if cmd == "" {

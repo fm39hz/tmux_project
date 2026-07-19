@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Go CLI (`gotomux`, module `github.com/fm39hz/gotomux`) for picking/creating tmux sessions and restoring saved layouts (tmuxp-like). Interactive fzf-style combobox via Bubble Tea; presets in SQLite.
+Go CLI (`gotomux`, module `github.com/fm39hz/gotomux`) for picking/creating tmux sessions and restoring saved sessions / shapes (tmuxp-like). Interactive fzf-style combobox via Bubble Tea; presets in SQLite.
 
 ## Commands
 
@@ -66,7 +66,7 @@ name: my-session
 cwd: /path
 
 [window: editor]
-layout: even-horizontal   # optional
+split: even-horizontal   # optional
 pane: /path | nvim
 pane: /path |
 ```

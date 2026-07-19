@@ -15,11 +15,14 @@ import (
 
 // Dual source for pure shapes — DB is runtime SSoT; config is 1-1 backup + hand-edit.
 //
-//	$id = layouts/<id>.json  ↔  shape.id
-//	Freeze / sticky / edit-in-app  →  DB tx first, then mirror file (post-commit)
-//	Hand-edit JSON                →  picked up once per process if mtime > shape.updated_at
-//	Same topology (ShapeKey)      →  reuse id (no clone)
-//	Preset instance (session tree) is separate table; only pure shape is dual-sourced.
+//	Shape = topology only: window/pane counts (+ optional named split), role labels.
+//	No cwd/session/project paths — root at bake; tools are pane intent.
+//	Instance (preset session tree) keeps cwd/cmd; separate tables.
+//
+//	$id = shapes/<id>.json  ↔  shape.id
+//	Freeze / sticky → DB tx first, then mirror file (post-commit)
+//	Hand-edit JSON  → picked up once per process if mtime > shape.updated_at
+//	Same topology (ShapeKey) → reuse id
 //
 
 func builtinDefault() *store.Preset {
@@ -32,20 +35,35 @@ func builtinDefault() *store.Preset {
 	}
 }
 
-func configLayoutsDir() string {
-	var base string
+func configBaseDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		base = filepath.Join(xdg, "gotomux")
-	} else if home, err := os.UserHomeDir(); err == nil {
-		base = filepath.Join(home, ".config", "gotomux")
-	} else {
+		return filepath.Join(xdg, "gotomux")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".config", "gotomux")
+	}
+	return ""
+}
+
+// configShapesDir: $XDG_CONFIG_HOME/gotomux/shapes (mirror of shape rows).
+// One-time: rename legacy layouts/ → shapes/ if shapes missing.
+func configShapesDir() string {
+	base := configBaseDir()
+	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, "layouts")
+	dir := filepath.Join(base, "shapes")
+	legacy := filepath.Join(base, "layouts")
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		if st, err := os.Stat(legacy); err == nil && st.IsDir() {
+			_ = os.Rename(legacy, dir)
+		}
+	}
+	return dir
 }
 
 func shapeFilePath(id string) string {
-	dir := configLayoutsDir()
+	dir := configShapesDir()
 	if dir == "" || id == "" {
 		return ""
 	}
@@ -67,7 +85,7 @@ var syncOnce sync.Once
 // syncConfigToDB once per process. Dual-source rules (DB is SSoT for runtime):
 //
 //	config file for id:
-//	  - missing in DB → insert (new hand-added layout)
+//	  - missing in DB → insert (new hand-added shape)
 //	  - mtime > DB.updated_at → hand-edit wins, UpsertShapeByID
 //	  - mtime <= DB.updated_at → DB wins, rewrite file from DB (backup catch-up)
 //	DB id without file → write mirror (backup fill)
@@ -78,7 +96,7 @@ func syncConfigToDB(st *store.Store) {
 		return
 	}
 	syncOnce.Do(func() {
-		dir := configLayoutsDir()
+		dir := configShapesDir()
 		seenFile := map[string]bool{}
 		if dir != "" {
 			ents, err := os.ReadDir(dir)
@@ -125,62 +143,64 @@ func syncConfigToDB(st *store.Store) {
 			}
 		}
 		_ = ensureDefault(st)
-		// DB → missing files
+		// rewrite every shape to product format (no dumps/cwd soup)
 		ids, _ := st.ListShapes()
 		for _, id := range ids {
-			if seenFile[id] {
+			body, ok := st.GetShape(id)
+			if !ok {
 				continue
 			}
-			if body, ok := st.GetShape(id); ok {
-				writeConfigMirror(id, body)
+			if clean := normalizeShapeBody(id, body); clean != "" {
+				if clean != body {
+					pure := mustParseShape(id, clean)
+					_ = st.UpsertShapeByID(id, ShapeKey(pure), clean)
+				}
+				body = clean
 			}
+			writeConfigMirror(id, body)
 		}
 	})
 }
 
-func relativizeCwd(root, cwd string) string {
-	if cwd == "" || root == "" {
-		return ""
-	}
-	if !filepath.IsAbs(cwd) {
-		return filepath.Clean(cwd)
-	}
-	rel, err := filepath.Rel(root, cwd)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return ""
-	}
-	if rel == "." {
-		return ""
-	}
-	return rel
-}
 
-// ToShape: pure layout — relative cwd, no cmd.
+// ToShape: shape essence — topology + pane tool intent.
+//
+//	keep: pane count, split class (h/v/tiled), tool (nvim/yazi/…)
+//	drop: cwd, abs paths, session name, pixel dumps, shell noise
+//
+// Tools are workflow intent of a pane slot, not project identity.
 func ToShape(p *store.Preset, id string) *store.Preset {
 	if p == nil {
 		return builtinDefault()
 	}
-	root := p.Cwd
 	out := &store.Preset{Name: id}
 	if out.Name == "" {
 		out.Name = "shape"
 	}
+	sess := p.Name
+	base := ""
+	if p.Cwd != "" {
+		base = filepath.Base(p.Cwd)
+	}
 	for i, w := range p.Windows {
+		n := len(w.Panes)
+		if n == 0 {
+			n = 1
+		}
 		wname := roleWindowName(w.Name, i)
+		if wname != "" && (wname == sess || w.Name == sess || (base != "" && (wname == base || w.Name == base))) {
+			wname = fmt.Sprintf("w%d", i)
+		}
 		pw := store.PresetWindow{
 			Idx:    i,
 			Name:   wname,
-			Cwd:    relativizeCwd(root, w.Cwd),
-			Layout: tmux.LayoutForStore(w.Layout, len(w.Panes)),
+			Layout: tmux.LayoutForShape(w.Layout, n),
 		}
-		if len(w.Panes) == 0 {
-			pw.Panes = []store.PresetPane{{}}
-		} else {
-			for j, pn := range w.Panes {
-				pw.Panes = append(pw.Panes, store.PresetPane{
-					Idx: j,
-					Cwd: relativizeCwd(root, pn.Cwd),
-				})
+		pw.Panes = make([]store.PresetPane, n)
+		for j := 0; j < n; j++ {
+			pw.Panes[j].Idx = j
+			if j < len(w.Panes) {
+				pw.Panes[j].Cmd = tmux.ToolIntent(w.Panes[j].Cmd)
 			}
 		}
 		out.Windows = append(out.Windows, pw)
@@ -191,11 +211,11 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 	return out
 }
 
-// ShapeKey fingerprints pure topology only:
+// ShapeKey fingerprints shape essence:
 //
-//	window count · per-window (pane count + relative cwds + layout kind)
+//	per-window: pane count + split class + per-pane tool intent
 //
-// Window *labels* are not part of the key (automatic-rename paths must not fork ids).
+// No cwd, labels, pixel dumps.
 func ShapeKey(p *store.Preset) string {
 	if p == nil {
 		return ""
@@ -205,16 +225,21 @@ func ShapeKey(p *store.Preset) string {
 		if i > 0 {
 			b.WriteByte('|')
 		}
-		// index + layout + pane relative cwds only
+		n := len(w.Panes)
+		if n == 0 {
+			n = 1
+		}
 		b.WriteByte('#')
 		b.WriteString(fmt.Sprintf("%d", i))
+		b.WriteByte('x')
+		b.WriteString(fmt.Sprintf("%d", n))
 		b.WriteByte('@')
-		b.WriteString(normalizeLayoutKey(w.Layout))
-		b.WriteByte(':')
-		b.WriteString(w.Cwd)
-		for _, pn := range w.Panes {
+		b.WriteString(tmux.LayoutForShape(w.Layout, n))
+		for j := 0; j < n; j++ {
 			b.WriteByte(',')
-			b.WriteString(pn.Cwd)
+			if j < len(w.Panes) {
+				b.WriteString(tmux.ToolIntent(w.Panes[j].Cmd))
+			}
 		}
 	}
 	sum := sha256.Sum256([]byte(b.String()))
@@ -231,24 +256,29 @@ func shapeIDFrom(_ *store.Preset, key string) string {
 	return "shape-" + key
 }
 
-// normalizeLayoutKey: named layouts stay; raw window_layout dumps collapse to "custom"
-// so tiny pixel diffs do not explode shape ids.
-func normalizeLayoutKey(layout string) string {
-	layout = strings.TrimSpace(layout)
-	if layout == "" {
-		return ""
-	}
-	if tmux.IsNamedLayout(layout) {
-		return layout
-	}
-	if tmux.IsLayoutDump(layout) {
-		return "custom"
-	}
-	return layout
-}
 
 // roleWindowName: keep short role labels (editor, shell); drop abs paths /
 // home leaks from automatic-rename (e.g. "/home/u/.cache/" → "w2").
+
+// normalizeShapeBody rewrites legacy/dump bodies into product shape JSON.
+func normalizeShapeBody(id, body string) string {
+	p, err := Parse(body)
+	if err != nil {
+		return ""
+	}
+	pure := ToShape(p, id)
+	pure.Name = id
+	return Format(pure)
+}
+
+func mustParseShape(id, body string) *store.Preset {
+	p, err := Parse(body)
+	if err != nil {
+		return &store.Preset{Name: id}
+	}
+	return ToShape(p, id)
+}
+
 func roleWindowName(name string, idx int) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -370,6 +400,8 @@ func StickFrom(st *store.Store, p *store.Preset) (id string, created bool, err e
 		return "", false, fmt.Errorf("stick shape: %w", err)
 	}
 	mirrorAfter(st, outID)
+	ObservePlacement(st, outID, p)
+	ObserveForks(st, p)
 	return outID, created, nil
 }
 
@@ -389,6 +421,7 @@ func RememberShape(st *store.Store, p *store.Preset) (id string, created bool, e
 }
 
 // FreezeSave: instance + shape in ONE DB transaction; config mirror after commit.
+// Silently learns non-trivial pane placement for this shape (umbrella slots).
 func FreezeSave(st *store.Store, p *store.Preset, setSticky bool) (shapeID string, shapeCreated bool, err error) {
 	if st == nil || p == nil {
 		return "", false, fmt.Errorf("freeze save: nil store or preset")
@@ -400,6 +433,8 @@ func FreezeSave(st *store.Store, p *store.Preset, setSticky bool) (shapeID strin
 		return "", false, fmt.Errorf("freeze save: %w", err)
 	}
 	mirrorAfter(st, shapeID)
+	ObservePlacement(st, shapeID, p)
+	ObserveForks(st, p)
 	return shapeID, shapeCreated, nil
 }
 
@@ -434,41 +469,10 @@ func ResetActive(st *store.Store) error {
 	return nil
 }
 
+// Apply bakes pure shape onto project root (all-root; no placement store).
+// Prefer bakeShape via ConnectProject for sticky+learned slots.
 func Apply(tmpl *store.Preset, name, root string) *store.Preset {
-	if root == "" {
-		root, _ = os.Getwd()
-	}
-	p := &store.Preset{Name: name, Cwd: root}
-	if tmpl == nil || len(tmpl.Windows) == 0 {
-		tmpl = builtinDefault()
-	}
-	for i, w := range tmpl.Windows {
-		wcwd := resolveCwd(root, w.Cwd)
-		pw := store.PresetWindow{Idx: i, Name: w.Name, Cwd: wcwd, Layout: w.Layout}
-		if len(w.Panes) == 0 {
-			pw.Panes = []store.PresetPane{{Cwd: wcwd}}
-		} else {
-			for j, pn := range w.Panes {
-				cwd := pn.Cwd
-				if cwd == "" {
-					cwd = w.Cwd
-				}
-				pw.Panes = append(pw.Panes, store.PresetPane{Idx: j, Cwd: resolveCwd(root, cwd)})
-			}
-		}
-		p.Windows = append(p.Windows, pw)
-	}
-	return p
-}
-
-func resolveCwd(root, cwd string) string {
-	if cwd == "" {
-		return root
-	}
-	if filepath.IsAbs(cwd) {
-		return cwd
-	}
-	return filepath.Join(root, cwd)
+	return bakeShape(nil, tmpl, name, root, "")
 }
 
 func ConnectProject(ctl *tmux.Ctl, st *store.Store, name, cwd string) error {
@@ -497,7 +501,9 @@ func ConnectProject(ctl *tmux.Ctl, st *store.Store, name, cwd string) error {
 	if err != nil {
 		return fmt.Errorf("load sticky shape: %w", err)
 	}
-	if err := ctl.ConnectPreset(Apply(tmpl, name, cwd)); err != nil {
+	// silent: topology × learned placement × current children
+	baked := bakeShape(st, tmpl, name, cwd, sid)
+	if err := ctl.ConnectPreset(baked); err != nil {
 		return fmt.Errorf("bake sticky %q as %q: %w", sid, name, err)
 	}
 	return nil

@@ -20,13 +20,14 @@ func TestLayoutNamedOnly(t *testing.T) {
 	if LayoutForStore(dump, 1) != "" {
 		t.Fatal("single pane drops layout")
 	}
-	if LayoutForBake("", 2) != "even-horizontal" {
+	if InferSplit("", 2) != "even-horizontal" {
 		t.Fatal("default bake")
 	}
-	if LayoutForBake(dump, 4) != dump {
-		t.Fatal("bake uses dump")
+	// dump → portable class, not pixel restore
+	if InferSplit(dump, 4) != "even-horizontal" {
+		t.Fatalf("infer h-dump: %q", InferSplit(dump, 4))
 	}
-	if LayoutForBake("", 1) != "" {
+	if InferSplit("", 1) != "" {
 		t.Fatal("single pane no layout")
 	}
 }
@@ -48,5 +49,33 @@ func TestSessionTargets(t *testing.T) {
 	}
 	if safeWindowName("/home/x/cache", "s") != "" {
 		t.Fatal("path name should be empty")
+	}
+}
+
+
+func TestLayoutForShapeClassifiesDump(t *testing.T) {
+	h := "ad85,158x35,0,0{40x35,0,0,37,39x35,41,0,38}"
+	v := "4080,158x35,0,0[158x17,0,0,100,158x17,0,18,101]"
+	nested := "7f98,158x35,0,0{80x35,0,0[80x17,0,0,21,80x17,0,18,22],77x35,81,0[77x17,81,0,23,77x17,81,18,24]}"
+	if LayoutForShape(h, 2) != "even-horizontal" {
+		t.Fatalf("h dump → even-horizontal, got %q", LayoutForShape(h, 2))
+	}
+	if LayoutForShape(v, 2) != "even-vertical" {
+		t.Fatalf("v dump → even-vertical, got %q", LayoutForShape(v, 2))
+	}
+	if LayoutForShape(nested, 4) != "tiled" {
+		t.Fatalf("nested → tiled, got %q", LayoutForShape(nested, 4))
+	}
+	if LayoutForShape("even-vertical", 2) != "even-vertical" {
+		t.Fatal("named kept")
+	}
+	if LayoutForShape(h, 1) != "" {
+		t.Fatal("single pane")
+	}
+	if InferSplit("", 3) != "even-horizontal" {
+		t.Fatal("bake empty → even-h")
+	}
+	if InferSplit(v, 2) != "even-vertical" {
+		t.Fatal("InferSplit classifies dump")
 	}
 }

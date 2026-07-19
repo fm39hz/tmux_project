@@ -67,9 +67,9 @@ Keys (fzf-style combobox — type to filter anytime):
   ctrl-u/w      clear query / delete word
   esc / ctrl-c  cancel (exit 0)
 
-Store:   $XDG_DATA_HOME/gotomux/state.db  (presets, shapes, sticky, usage)
-Layouts: $XDG_CONFIG_HOME/gotomux/layouts/<id>.json (1-1 shape backup)
-Edit:    JSON {name,cwd,windows:[{name,layout,panes:[{cwd,cmd}]}]}
+Store:  $XDG_DATA_HOME/gotomux/state.db  (presets, shapes, sticky, usage)
+Shapes: $XDG_CONFIG_HOME/gotomux/shapes/<id>.json (1-1 backup)
+Edit:   JSON {name,cwd,windows:[{name,split,panes:[{cwd,cmd}]}]}
 `, version)
 		return nil
 	default:

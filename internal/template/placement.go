@@ -1,0 +1,179 @@
+package template
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/fm39hz/gotomux/internal/project"
+	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/tmux"
+)
+
+// Placement pattern: per-pane slots joined by "," within window, windows by "|".
+// Slot: "R" = project root, "C0"/"C1"/… = Children(root)[k], missing → R at bake.
+//
+// Learned only from freeze (ObservePlacement). Never user-facing.
+// Apply uses BestPlacement when confidence ok; else all-root.
+
+// PatternFromPreset maps each pane cwd to R/Ck against root's children at freeze time.
+// Trivial all-R returns "" (nothing to learn).
+func PatternFromPreset(p *store.Preset) string {
+	if p == nil || p.Cwd == "" || len(p.Windows) == 0 {
+		return ""
+	}
+	root := filepath.Clean(p.Cwd)
+	children := project.Children(root)
+	var wins []string
+	allR := true
+	for _, w := range p.Windows {
+		panes := w.Panes
+		if len(panes) == 0 {
+			panes = []store.PresetPane{{}}
+		}
+		var slots []string
+		for _, pn := range panes {
+			cwd := pn.Cwd
+			if cwd == "" {
+				cwd = w.Cwd
+			}
+			if cwd == "" {
+				cwd = root
+			}
+			s := slotOf(root, children, cwd)
+			if s != "R" {
+				allR = false
+			}
+			slots = append(slots, s)
+		}
+		wins = append(wins, strings.Join(slots, ","))
+	}
+	if allR {
+		return ""
+	}
+	return strings.Join(wins, "|")
+}
+
+func slotOf(root string, children []string, cwd string) string {
+	cwd = filepath.Clean(cwd)
+	root = filepath.Clean(root)
+	if cwd == root {
+		return "R"
+	}
+	// longest child prefix match
+	best := -1
+	bestLen := -1
+	for i, ch := range children {
+		ch = filepath.Clean(ch)
+		if cwd == ch || strings.HasPrefix(cwd, ch+string(os.PathSeparator)) {
+			if len(ch) > bestLen {
+				best = i
+				bestLen = len(ch)
+			}
+		}
+	}
+	if best >= 0 {
+		return fmt.Sprintf("C%d", best)
+	}
+	// under root but not a known child (e.g. src/) → treat as R for placement
+	if rel, err := filepath.Rel(root, cwd); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "R"
+	}
+	return "R"
+}
+
+// ObservePlacement: best-effort learn non-trivial pattern for shapeID from instance.
+func ObservePlacement(st *store.Store, shapeID string, p *store.Preset) {
+	if st == nil || shapeID == "" || p == nil {
+		return
+	}
+	pat := PatternFromPreset(p)
+	if pat == "" {
+		return
+	}
+	_ = st.RecordPlacement(shapeID, pat)
+}
+
+// bakeShape materialises shape → instance: placement slots + inferred split.
+// All inference lives here; Load only runs the resulting preset.
+// st/shapeID optional — without them, all panes = root, even split.
+func bakeShape(st *store.Store, tmpl *store.Preset, name, root, shapeID string) *store.Preset {
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	root = filepath.Clean(root)
+	p := &store.Preset{Name: name, Cwd: root}
+	if tmpl == nil || len(tmpl.Windows) == 0 {
+		tmpl = builtinDefault()
+	}
+
+	var slots [][]string
+	if st != nil && shapeID != "" {
+		if pat, ok := st.BestPlacement(shapeID); ok {
+			slots = parsePattern(pat)
+		}
+	}
+	children := project.Children(root)
+
+	for i, w := range tmpl.Windows {
+		n := len(w.Panes)
+		if n == 0 {
+			n = 1
+		}
+		var winSlots []string
+		if i < len(slots) && len(slots[i]) == n {
+			winSlots = slots[i]
+		}
+		pw := store.PresetWindow{
+			Idx:    i,
+			Name:   w.Name,
+			Layout: tmux.InferSplit(w.Layout, n),
+			Cwd:    root,
+		}
+		pw.Panes = make([]store.PresetPane, n)
+		for j := 0; j < n; j++ {
+			cwd := root
+			if winSlots != nil {
+				cwd = resolveSlot(root, children, winSlots[j])
+			}
+			cmd := ""
+			if j < len(w.Panes) {
+				cmd = w.Panes[j].Cmd
+			}
+			pw.Panes[j] = store.PresetPane{Idx: j, Cwd: cwd, Cmd: cmd}
+			if j == 0 {
+				pw.Cwd = cwd
+			}
+		}
+		p.Windows = append(p.Windows, pw)
+	}
+	return p
+}
+
+func parsePattern(pat string) [][]string {
+	if pat == "" {
+		return nil
+	}
+	wins := strings.Split(pat, "|")
+	out := make([][]string, len(wins))
+	for i, w := range wins {
+		out[i] = strings.Split(w, ",")
+	}
+	return out
+}
+
+func resolveSlot(root string, children []string, slot string) string {
+	slot = strings.TrimSpace(slot)
+	if slot == "" || slot == "R" {
+		return root
+	}
+	var k int
+	if _, err := fmt.Sscanf(slot, "C%d", &k); err != nil || k < 0 {
+		return root
+	}
+	if k >= len(children) {
+		return root
+	}
+	return children[k]
+}

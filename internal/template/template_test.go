@@ -10,40 +10,90 @@ import (
 	"github.com/fm39hz/gotomux/internal/store"
 )
 
-func TestToShapeStripsCmd(t *testing.T) {
+func TestToShapeEssence(t *testing.T) {
 	p := &store.Preset{
 		Name: "fantasia", Cwd: "/work/Fantasia",
 		Windows: []store.PresetWindow{
 			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/Fantasia", Cmd: "nvim"}}},
-			{Name: "test", Panes: []store.PresetPane{{Cwd: "/work/Fantasia/test"}}},
+			{Name: "test", Layout: "4080,158x35,0,0[158x17,0,0,1,158x17,0,18,2]", Panes: []store.PresetPane{
+				{Cwd: "/work/Fantasia/test", Cmd: "go test"},
+				{Cwd: "/work/Fantasia/pkg"},
+			}},
+			{Name: "files", Panes: []store.PresetPane{{Cmd: "yazi"}}},
 		},
 	}
-	sh := ToShape(p, "editor-test")
-	if sh.Windows[0].Panes[0].Cmd != "" || sh.Windows[0].Panes[0].Cwd != "" {
-		t.Fatalf("%+v", sh.Windows[0].Panes[0])
+	sh := ToShape(p, "x")
+	if sh.Cwd != "" {
+		t.Fatalf("shape cwd must be empty: %q", sh.Cwd)
 	}
-	if sh.Windows[1].Panes[0].Cwd != "test" {
-		t.Fatalf("rel %q", sh.Windows[1].Panes[0].Cwd)
+	if sh.Windows[0].Panes[0].Cmd != "nvim" {
+		t.Fatalf("editor tool intent: %+v", sh.Windows[0].Panes[0])
+	}
+	if sh.Windows[1].Layout != "even-vertical" {
+		t.Fatalf("v-dump → even-vertical: %q", sh.Windows[1].Layout)
+	}
+	if sh.Windows[1].Panes[0].Cmd != "go" {
+		t.Fatalf("tool intent binBase: %q", sh.Windows[1].Panes[0].Cmd)
+	}
+	if sh.Windows[1].Panes[0].Cwd != "" || sh.Windows[2].Panes[0].Cmd != "yazi" {
+		t.Fatalf("cwd stripped, yazi kept: %+v %+v", sh.Windows[1].Panes[0], sh.Windows[2].Panes[0])
+	}
+	// shell-looking empty
+	if sh.Windows[1].Panes[1].Cmd != "" {
+		t.Fatalf("empty shell pane: %+v", sh.Windows[1].Panes[1])
 	}
 }
 
-func TestShapeKeyIgnoresCmd(t *testing.T) {
+func TestShapeKeyIgnoresPathsKeepsTools(t *testing.T) {
+	// same topology+tools, different paths/names → same key
 	a := ToShape(&store.Preset{
-		Cwd: "/r",
+		Name: "proj-a", Cwd: "/work/a",
 		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Name: "shell", Panes: []store.PresetPane{{}}},
+			{Name: "editor", Cwd: "/work/a", Panes: []store.PresetPane{{Cwd: "/work/a", Cmd: "nvim"}}},
+			{Name: "shell", Panes: []store.PresetPane{{Cwd: "/work/a/apps"}, {Cwd: "/work/a"}}},
 		},
 	}, "x")
 	b := ToShape(&store.Preset{
-		Cwd: "/r",
+		Name: "proj-b", Cwd: "/other/b",
 		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cmd: "vim"}}},
-			{Name: "shell", Panes: []store.PresetPane{{}}},
+			{Name: "code", Cwd: "/other/b", Panes: []store.PresetPane{{Cwd: "/other/b/src", Cmd: "nvim"}}},
+			{Name: "term", Panes: []store.PresetPane{{Cwd: "/other/b"}, {Cwd: "/tmp"}}},
 		},
 	}, "y")
 	if ShapeKey(a) != ShapeKey(b) {
-		t.Fatal("cmd must not affect key")
+		t.Fatalf("paths must not affect key: %s vs %s", ShapeKey(a), ShapeKey(b))
+	}
+	// different tool intent → different key
+	c := ToShape(&store.Preset{
+		Windows: []store.PresetWindow{
+			{Panes: []store.PresetPane{{Cmd: "vim"}}},
+			{Panes: []store.PresetPane{{}, {}}},
+		},
+	}, "z")
+	if ShapeKey(a) == ShapeKey(c) {
+		t.Fatal("tool intent must affect key")
+	}
+}
+
+func TestApplyUsesRootAndTools(t *testing.T) {
+	sh := ToShape(&store.Preset{
+		Cwd: "/old",
+		Windows: []store.PresetWindow{
+			{Name: "e", Cwd: "/old/sub", Panes: []store.PresetPane{{Cwd: "/old/sub", Cmd: "nvim"}, {Cwd: "/old", Cmd: "yazi"}}},
+		},
+	}, "s")
+	got := Apply(sh, "newproj", "/work/new")
+	if got.Name != "newproj" || got.Cwd != "/work/new" {
+		t.Fatalf("%+v", got)
+	}
+	if len(got.Windows) != 1 || len(got.Windows[0].Panes) != 2 {
+		t.Fatalf("windows %+v", got.Windows)
+	}
+	if got.Windows[0].Panes[0].Cwd != "/work/new" || got.Windows[0].Panes[0].Cmd != "nvim" {
+		t.Fatalf("root+tool: %+v", got.Windows[0].Panes[0])
+	}
+	if got.Windows[0].Panes[1].Cmd != "yazi" {
+		t.Fatalf("yazi: %+v", got.Windows[0].Panes[1])
 	}
 }
 
@@ -75,7 +125,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 		t.Fatal("3-pane shape must not be default")
 	}
 	// 1-1 file
-	fp := filepath.Join(dir, "cfg", "gotomux", "layouts", id1+".json")
+	fp := filepath.Join(dir, "cfg", "gotomux", "shapes", id1+".json")
 	if _, err := os.Stat(fp); err != nil {
 		t.Fatalf("missing config mirror %s: %v", fp, err)
 	}
@@ -83,7 +133,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 	p2 := &store.Preset{
 		Name: "proj2", Cwd: "/work/b",
 		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/b", Cmd: "hx"}}},
+			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/b", Cmd: "nvim"}}},
 			{Name: "shell", Panes: []store.PresetPane{{Cwd: "/work/b"}}},
 			{Name: "logs", Panes: []store.PresetPane{{Cwd: "/work/b/logs"}}},
 		},
@@ -93,7 +143,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 		t.Fatalf("dedupe %q %v (want %q false)", id2, created2, id1)
 	}
 	// only one json for that shape id
-	ents, _ := os.ReadDir(filepath.Join(dir, "cfg", "gotomux", "layouts"))
+	ents, _ := os.ReadDir(filepath.Join(dir, "cfg", "gotomux", "shapes"))
 	var jsons []string
 	for _, e := range ents {
 		if filepath.Ext(e.Name()) == ".json" {
@@ -113,7 +163,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 }
 
 func TestJSONRoundtrip(t *testing.T) {
-	raw := `{"name":"demo","windows":[{"name":"w","layout":"even-horizontal","panes":[{"cwd":""}]}]}`
+	raw := `{"name":"demo","windows":[{"name":"w","split":"even-horizontal","panes":[{"cwd":""}]}]}`
 	p, err := Parse(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +195,7 @@ func TestConfigHandEditWinsByMtime(t *testing.T) {
 	if err != nil || id == "" {
 		t.Fatal(id, err)
 	}
-	path := filepath.Join(dir, "cfg", "gotomux", "layouts", id+".json")
+	path := filepath.Join(dir, "cfg", "gotomux", "shapes", id+".json")
 	// hand-edit: add third window role name change in topology
 	hand := &store.Preset{
 		Name: id,
@@ -244,7 +294,10 @@ func TestShapeIDOpaque(t *testing.T) {
 		t.Fatalf("id must not contain path tokens: %q", id)
 	}
 	out := Format(sh)
-	if strings.Contains(out, "/home/") || strings.Contains(out, "claude") {
-		t.Fatalf("body leak:\n%s", out)
+	if strings.Contains(out, "/home/") || strings.Contains(out, "leaky") {
+		t.Fatalf("path must not leak:\n%s", out)
+	}
+	if !strings.Contains(out, `"cmd": "claude"`) {
+		t.Fatalf("tool intent must remain:\n%s", out)
 	}
 }

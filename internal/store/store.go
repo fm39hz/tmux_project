@@ -268,6 +268,27 @@ CREATE TABLE IF NOT EXISTS sticky (
 		_, _ = s.db.Exec(`ALTER TABLE shape ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`)
 		_, _ = s.db.Exec(`UPDATE shape SET updated_at = created_at WHERE updated_at = 0`)
 	}
+	if _, err = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS placement (
+  shape_id TEXT NOT NULL,
+  pattern  TEXT NOT NULL,
+  n        INTEGER NOT NULL DEFAULT 0,
+  last     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (shape_id, pattern)
+);`); err != nil {
+		return err
+	}
+	// fork: window-level essence units learned from freeze/sticky (silent).
+	// key = paneCount|split|tools — same key = same reusable mảnh.
+	if _, err = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS fork (
+  key      TEXT PRIMARY KEY,
+  body     TEXT NOT NULL DEFAULT '',
+  n        INTEGER NOT NULL DEFAULT 0,
+  last     INTEGER NOT NULL DEFAULT 0
+);`); err != nil {
+		return err
+	}
 	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_session_last_used ON session(last_used DESC)`)
 	return err
 }
@@ -284,7 +305,7 @@ func (s *Store) ListNames() ([]string, error) {
 	return out, nil
 }
 
-// PresetMeta is name+cwd+recency for list/dedup/rank (no full layout load).
+// PresetMeta is name+cwd+recency for list/dedup/rank (no full tree load).
 type PresetMeta struct {
 	Name     string
 	Cwd      string
@@ -740,7 +761,7 @@ ON CONFLICT(id) DO UPDATE SET updated = excluded.updated
 	return tx.Commit()
 }
 
-// ShapeRow is a pure layout blob (JSON body) keyed for dedupe.
+// ShapeRow is a pure shape blob (JSON body) keyed for dedupe.
 type ShapeRow struct {
 	ID   string
 	Key  string
@@ -835,6 +856,8 @@ func putShapeTx(tx *sql.Tx, id, key, body string) (outID string, created bool, e
 	var exist string
 	err = tx.QueryRow(`SELECT id FROM shape WHERE key = ?`, key).Scan(&exist)
 	if err == nil && exist != "" {
+		now := time.Now().Unix()
+		_, _ = tx.Exec(`UPDATE shape SET body = ?, updated_at = ? WHERE id = ?`, body, now, exist)
 		return exist, false, nil
 	}
 	if id == "" {
@@ -1041,4 +1064,68 @@ ON CONFLICT(id) DO UPDATE SET shape_id = excluded.shape_id
 
 func (s *Store) String() string {
 	return fmt.Sprintf("Store{%v}", s.db)
+}
+
+// RecordPlacement bumps learned pane-slot pattern for a shape (silent).
+func (s *Store) RecordPlacement(shapeID, pattern string) error {
+	shapeID, pattern = strings.TrimSpace(shapeID), strings.TrimSpace(pattern)
+	if shapeID == "" || pattern == "" {
+		return nil
+	}
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`
+INSERT INTO placement(shape_id, pattern, n, last) VALUES(?, ?, 1, ?)
+ON CONFLICT(shape_id, pattern) DO UPDATE SET
+  n = n + 1,
+  last = excluded.last
+`, shapeID, pattern, now)
+	return err
+}
+
+// BestPlacement returns highest-count pattern for shape (tie → newest last).
+// ok=false if none or weak (n < 1 — any observation counts for v1).
+func (s *Store) BestPlacement(shapeID string) (pattern string, ok bool) {
+	shapeID = strings.TrimSpace(shapeID)
+	if shapeID == "" {
+		return "", false
+	}
+	err := s.db.QueryRow(`
+SELECT pattern FROM placement
+WHERE shape_id = ?
+ORDER BY n DESC, last DESC
+LIMIT 1
+`, shapeID).Scan(&pattern)
+	if err != nil || pattern == "" {
+		return "", false
+	}
+	return pattern, true
+}
+
+// RecordFork bumps a window-level essence unit (silent fork learning).
+// key fingerprints topology+tools of one window; body is product JSON for that window.
+func (s *Store) RecordFork(key, body string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	now := time.Now().Unix()
+	_, err := s.db.Exec(`
+INSERT INTO fork(key, body, n, last) VALUES(?, ?, 1, ?)
+ON CONFLICT(key) DO UPDATE SET
+  n = n + 1,
+  last = excluded.last,
+  body = CASE WHEN excluded.body != '' THEN excluded.body ELSE body END
+`, key, body, now)
+	return err
+}
+
+// ForkHits returns how often a window key has been observed (0 if unknown).
+func (s *Store) ForkHits(key string) int64 {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return 0
+	}
+	var n int64
+	_ = s.db.QueryRow(`SELECT n FROM fork WHERE key = ?`, key).Scan(&n)
+	return n
 }
