@@ -140,7 +140,7 @@ func TestLoadKhoCongShape(t *testing.T) {
 		Name: name,
 		Cwd:  root,
 		Windows: []store.PresetWindow{
-			{Name: "kho-cong", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "nvim"}}},
+			{Name: "code", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "nvim"}}},
 			{Name: "shell", Cwd: root, Panes: []store.PresetPane{{Cwd: a}, {Cwd: b}}},
 			{Name: "files", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "yazi"}}},
 		},
@@ -156,7 +156,7 @@ func TestLoadKhoCongShape(t *testing.T) {
 	}
 	got := strings.TrimSpace(string(out))
 	t.Log("windows:\n" + got)
-	want := []string{"kho-cong:1", "shell:2", "files:1"}
+	want := []string{"code:1", "shell:2", "files:1"}
 	lines := strings.Split(got, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("want 3 windows, got %q", got)
@@ -189,7 +189,7 @@ func TestLoadKhoCongShape(t *testing.T) {
 		if path == b {
 			hasB = true
 		}
-		if win == "kho-cong" && (tool == "nvim" || start == "nvim") {
+		if win == "code" && (tool == "nvim" || start == "nvim") {
 			hasNvim = true
 		}
 		if win == "files" && (tool == "yazi" || start == "yazi") {

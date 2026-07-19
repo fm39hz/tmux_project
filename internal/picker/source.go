@@ -8,6 +8,7 @@ import (
 
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
+	"github.com/fm39hz/gotomux/internal/toolclass"
 )
 
 // Source IDs - stable keys for bySrc slots and future remote hosts.
@@ -67,22 +68,11 @@ func (s *createSource) Snapshot() []Item {
 	if s.name == "" {
 		return nil
 	}
-	// Inside tmux: no Create (jump via active/zoxide).
-	if len(s.live) > 0 {
-		for _, ls := range s.live {
-			if ls.Name == s.name {
-				return nil
-			}
+	// Inside tmux OR session already exists: hide Create (jump via active/zoxide).
+	for _, ls := range s.live {
+		if ls.Name == s.name {
+			return nil
 		}
-		return nil
-	}
-	if s.ctl == nil {
-		return nil
-	}
-	// no live sessions found by our snapshot guard, but ctl may still reply
-	// edge: use the shared list; if empty, skip create
-	if len(s.live) == 0 {
-		// outside tmux with no sessions at all → still show Create
 	}
 	return []Item{{
 		Src:   SrcCreate,
@@ -114,11 +104,13 @@ func (s *tmuxSource) Snapshot() []Item {
 		if ls.Created > rec {
 			rec = ls.Created
 		}
+		busy := mkBusy(ls.ActiveCmd)
 		out = append(out, Item{
 			Src:     SrcTmux,
 			Kind:    KindActive,
+			Busy:    busy,
 			Title:   fmt.Sprintf("[Active] %s", ls.Name),
-			Desc:    fmt.Sprintf("%d windows", ls.Windows),
+			Desc:    badgeFromBusy(busy),
 			Name:    ls.Name,
 			Path:    ls.Path,
 			Windows: ls.Windows,
@@ -263,6 +255,29 @@ func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]in
 }
 
 // countSources total raw items (pre-dedupe, pre-cap).
+// mkBusy: any non-shell command -> busy marker. Empty otherwise.
+func mkBusy(cmd string) string {
+	if cmd == "" {
+		return ""
+	}
+	base := toolclass.Base(cmd)
+	if base == "" || toolclass.IsShell(base) {
+		return ""
+	}
+	if len(base) > 20 {
+		base = base[:20]
+	}
+	return base
+}
+
+// badgeFromBusy: "*" if busy tool, empty string if idle.
+func badgeFromBusy(busy string) string {
+	if busy == "" {
+		return ""
+	}
+	return busy + " *"
+}
+
 func countSources(bySrc map[string][]Item) int {
 	n := 0
 	for _, items := range bySrc {

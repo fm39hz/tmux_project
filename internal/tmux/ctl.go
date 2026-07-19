@@ -113,7 +113,12 @@ type LiveSession struct {
 	Activity     int64  // unix last pane activity
 	Created      int64  // unix session created
 	Attached     int    // client count
+	ActiveCmd    string // pane_current_command of the live active pane (snapshot)
 }
+
+// listPanesFmt for glance (session + command + active + alive).
+// One `list-panes -s` call covers all sessions.
+const listPanesFmt = "#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"
 
 func (c *Ctl) ListLive() ([]LiveSession, error) {
 	ss, err := c.t.ListSessions()
@@ -121,8 +126,43 @@ func (c *Ctl) ListLive() ([]LiveSession, error) {
 		return nil, err
 	}
 	out := make([]LiveSession, 0, len(ss))
+
+	// glance: prefer active pane, fallback to any non-shell pane
+	activeCmd := map[string]string{}
+	busyCmd := map[string]string{}
+	if raw, err := c.t.Command("list-panes", "-s", "-F", listPanesFmt); err == nil {
+		for _, line := range strings.Split(strings.TrimRight(raw, "\n"), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			fields := strings.Split(line, "\t")
+			if len(fields) < 4 {
+				continue
+			}
+			sname := strings.TrimSpace(fields[0])
+			cmd := strings.TrimSpace(fields[1])
+			active := fields[2] == "1"
+			dead := fields[3] == "1"
+			if sname == "" || cmd == "" || dead {
+				continue
+			}
+			if _, seen := activeCmd[sname]; !seen && active {
+				activeCmd[sname] = cmd
+			}
+			if _, seen := busyCmd[sname]; !seen && !toolclass.IsShell(cmd) {
+				busyCmd[sname] = cmd
+			}
+		}
+	}
 	for _, s := range ss {
-		out = append(out, LiveSession{
+		cmd := activeCmd[s.Name]
+		if cmd == "" || toolclass.IsShell(cmd) {
+			if b, ok := busyCmd[s.Name]; ok {
+				cmd = b
+			}
+		}
+		ls := LiveSession{
 			Name:         s.Name,
 			Windows:      s.Windows,
 			Path:         s.Path,
@@ -130,7 +170,9 @@ func (c *Ctl) ListLive() ([]LiveSession, error) {
 			Activity:     parseUnix(s.Activity),
 			Created:      parseUnix(s.Created),
 			Attached:     s.Attached,
-		})
+			ActiveCmd:    cmd,
+		}
+		out = append(out, ls)
 	}
 	return out, nil
 }

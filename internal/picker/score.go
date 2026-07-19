@@ -62,6 +62,7 @@ type rankKey struct {
 	tier    int8
 	kind    int8
 	detail  int32
+	busy    int8   // 1 if session has non-shell tool active
 	recency int64
 	cooccur int64
 	pathQ   int8
@@ -77,6 +78,9 @@ func (a rankKey) less(b rankKey) bool {
 	}
 	if a.detail != b.detail {
 		return a.detail > b.detail
+	}
+	if a.busy != b.busy {
+		return a.busy > b.busy
 	}
 	if a.recency != b.recency {
 		return a.recency > b.recency

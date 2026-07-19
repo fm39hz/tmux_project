@@ -550,7 +550,16 @@ func (m model) View() string {
 			it := m.view[i]
 			line := it.Title
 			if it.Desc != "" {
-				line = line + "  " + it.Desc
+				// dim badge; hard column 34: pad title, clip title if exceeds
+				titleW := lipgloss.Width(line)
+				if titleW < 34 {
+					line += strings.Repeat(" ", 34-titleW)
+				} else {
+					// long title: clip and let desc overflow naturally
+					line = truncateRunes(line, 32)
+					line += "  "
+				}
+				line += styleDim.Render(it.Desc)
 			}
 			if m.width > 4 {
 				line = truncateRunes(line, m.width-2)
@@ -577,3 +586,5 @@ func (m model) View() string {
 	b.WriteByte('\n')
 	return b.String()
 }
+
+

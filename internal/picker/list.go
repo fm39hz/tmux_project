@@ -20,6 +20,11 @@ const (
 
 // Item is one picker row from any Source.
 type Item struct {
+	// Busy is a session-level busy indicator (tool token from ActiveCmd).
+	// Set for tmux source; empty for preset/create/zoxide.
+	// Used for glance badge and weak rank boost.
+	Busy    string
+
 	Src     string // Source.ID(); remote later: "tmux@host"
 	Host    string // "" = local
 	Kind    Kind
