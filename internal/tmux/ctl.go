@@ -90,10 +90,6 @@ func InferSplit(layout string, nPanes int) string {
 	return "even-horizontal"
 }
 
-// LayoutForBake: legacy alias → InferSplit (bake-time only).
-func LayoutForBake(layout string, nPanes int) string {
-	return InferSplit(layout, nPanes)
-}
 
 
 type Ctl struct {

@@ -385,6 +385,12 @@ func ensureDefault(st *store.Store) error {
 	return nil
 }
 
+// observeAfterShape: silent learning after shape write (place + fork units).
+func observeAfterShape(st *store.Store, shapeID string, p *store.Preset) {
+	ObservePlacement(st, shapeID, p)
+	ObserveForks(st, p)
+}
+
 // StickFrom: one DB tx (shape + sticky), then config mirror.
 func StickFrom(st *store.Store, p *store.Preset) (id string, created bool, err error) {
 	if st == nil {
@@ -400,8 +406,7 @@ func StickFrom(st *store.Store, p *store.Preset) (id string, created bool, err e
 		return "", false, fmt.Errorf("stick shape: %w", err)
 	}
 	mirrorAfter(st, outID)
-	ObservePlacement(st, outID, p)
-	ObserveForks(st, p)
+	observeAfterShape(st, outID, p)
 	return outID, created, nil
 }
 
@@ -433,8 +438,7 @@ func FreezeSave(st *store.Store, p *store.Preset, setSticky bool) (shapeID strin
 		return "", false, fmt.Errorf("freeze save: %w", err)
 	}
 	mirrorAfter(st, shapeID)
-	ObservePlacement(st, shapeID, p)
-	ObserveForks(st, p)
+	observeAfterShape(st, shapeID, p)
 	return shapeID, shapeCreated, nil
 }
 
