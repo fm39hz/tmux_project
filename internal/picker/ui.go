@@ -511,16 +511,16 @@ func trimLastWord(s string) string {
 func (m model) View() string {
 	var b strings.Builder
 
-	// Filter line - fzf-like "> ", NOT shell prompt glyph (avoids double-prompt look under fish/starship).
+	// Filter line: nerd prompt when available, else ASCII "> " (not shell-like).
 	// Shell chrome stays above; we only own the inline block below the real prompt.
-	b.WriteString(styleDim.Render("> "))
+	b.WriteString(styleDim.Render(iconPrompt()))
 	b.WriteString(m.query)
-	// count + keys on same line as filter (compact, less "second shell")
+	// count + sticky + keys on same line as filter
 	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
 	if m.help {
 		meta += "  ^n/p | enter | ^t sticky | ^x kill | ^f freeze | ^e edit | ^d del | ^u/^w | esc"
 	} else if m.tmpl != "" && m.tmpl != "default" {
-		meta += "  sticky:" + m.tmpl + "  enter | esc | ?"
+		meta += formatStickyMeta(m.tmpl) + "  enter | esc | ?"
 	} else {
 		meta += "  enter | esc | ?"
 	}
@@ -556,7 +556,7 @@ func (m model) View() string {
 				line = truncateRunes(line, m.width-2)
 			}
 			if i == m.cursor {
-				b.WriteString(styleCursor.Render("> " + line))
+				b.WriteString(styleCursor.Render(iconCursor() + line))
 			} else {
 				b.WriteString(styleFor(it.Kind).Render("  " + line))
 			}
