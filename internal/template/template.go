@@ -11,6 +11,7 @@ import (
 
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
+	"github.com/fm39hz/gotomux/internal/toolclass"
 )
 
 // Dual source for pure shapes - DB is runtime SSoT; config is 1-1 backup + hand-edit.
@@ -408,21 +409,7 @@ func roleFromTools(w store.PresetWindow) string {
 }
 
 func chromeFromTool(tool string) string {
-	switch tool {
-	case "nvim", "vim", "vi", "hx", "helix", "emacs", "nano", "micro":
-		return "editor"
-	case "yazi", "lf", "ranger", "nnn", "broot":
-		return "files"
-	case "lazygit", "gitui", "tig":
-		return "git"
-	case "opencode", "claude", "codex", "aider", "pi":
-		return tool // multi-agent: glance by tool name
-	default:
-		if len(tool) <= 16 {
-			return tool
-		}
-		return "shell"
-	}
+	return toolclass.ChromeRole(tool)
 }
 
 func neutralRoleSlug(name string) string {

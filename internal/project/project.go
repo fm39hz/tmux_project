@@ -7,29 +7,6 @@ import (
 	"sync"
 )
 
-// Project root markers - nearest walk-up wins (innermost).
-var projectMarkers = []string{
-	".git", ".jj", ".hg",
-	"package.json", "pnpm-workspace.yaml", "turbo.json", "nx.json", "lerna.json",
-	"deno.json", "deno.jsonc", "bun.lock", "bun.lockb",
-	"go.mod", "Cargo.toml", "CMakeLists.txt", "meson.build", "Makefile", "makefile",
-	"global.json", "Directory.Build.props",
-	"pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "poetry.lock",
-	"pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
-	"Gemfile", "composer.json", "mix.exs",
-	"project.godot", "ProjectSettings",
-	"flake.nix", "shell.nix", ".envrc",
-}
-
-var genericBases = map[string]bool{
-	"app": true, "apps": true, "web": true, "www": true, "api": true,
-	"src": true, "lib": true, "core": true, "server": true, "client": true,
-	"frontend": true, "backend": true, "mobile": true, "docs": true,
-	"test": true, "tests": true, "cmd": true, "internal": true,
-	"site": true, "admin": true, "service": true, "services": true,
-	"game": true, "godot": true, "project": true, "src-tauri": true,
-}
-
 var projectRootMemo sync.Map
 
 // FindProjectRoot walks up from start to nearest project-looking directory.
@@ -68,6 +45,18 @@ func FindProjectRoot(start string) string {
 }
 
 func isProjectRoot(dir string) bool {
+	// mature detector (go/node/rust/python/dotnet/...) + our extras
+	if IsDetectedProject(dir) {
+		return true
+	}
+	// VCS roots without language marker
+	if IsGitRepo(dir) {
+		return true
+	}
+	if DirExists(filepath.Join(dir, ".jj")) || DirExists(filepath.Join(dir, ".hg")) {
+		return true
+	}
+	// thin fallback list (markers.go)
 	for _, m := range projectMarkers {
 		p := filepath.Join(dir, m)
 		if FileExists(p) || DirExists(p) {

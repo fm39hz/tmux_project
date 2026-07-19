@@ -1,70 +1,43 @@
 package tmux
 
 import (
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
+
+	"github.com/fm39hz/gotomux/internal/toolclass"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
-// shells - not restored as pane cmd
-var shellNames = map[string]bool{
-	"sh": true, "bash": true, "zsh": true, "fish": true,
-	"nu": true, "nushell": true, "dash": true, "ash": true,
-	"elvish": true, "xonsh": true, "pwsh": true, "powershell": true,
-	"tmux": true, "login": true,
-}
-
-// known tools we prefer when walking the pane process tree
-var restoreTools = map[string]bool{
-	"nvim": true, "vim": true, "vi": true, "hx": true, "helix": true,
-	"emacs": true, "nano": true, "micro": true,
-	"lazygit": true, "gitui": true, "tig": true,
-	"yazi": true, "lf": true, "ranger": true, "nnn": true, "broot": true,
-	"btop": true, "htop": true, "top": true, "bottom": true, "nvtop": true,
-	"claude": true, "opencode": true, "codex": true, "aider": true,
-	"python": true, "python3": true, "node": true, "bun": true, "deno": true,
-	"go": true, "cargo": true, "godot": true, "dotnet": true,
-	"ssh": true, "mosh": true,
-}
-
-// procIndex: one ps snapshot for a whole Freeze (portable: Linux/macOS/BSD).
+// procIndex: process snapshot for a whole Freeze (gopsutil - portable).
 type procIndex struct {
-	children map[int][]int
-	comm     map[int]string
+	children map[int32][]int32
+	comm     map[int32]string
 }
 
-// loadProcIndex runs a single `ps` - no /proc dependency.
+// loadProcIndex: one process table snapshot via gopsutil (no ps/fork).
 func loadProcIndex() *procIndex {
 	idx := &procIndex{
-		children: map[int][]int{},
-		comm:     map[int]string{},
+		children: map[int32][]int32{},
+		comm:     map[int32]string{},
 	}
-	// -axo: BSD/macOS + Linux procps; -eo: POSIX-ish fallback
-	out, err := exec.Command("ps", "-axo", "pid=,ppid=,comm=").Output()
+	procs, err := process.Processes()
 	if err != nil {
-		out, err = exec.Command("ps", "-eo", "pid=", "ppid=", "comm=").Output()
-		if err != nil {
-			return idx
-		}
+		return idx
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, p := range procs {
+		pid := p.Pid
+		ppid, err := p.Ppid()
+		if err != nil {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
+		name, err := p.Name()
+		if err != nil || name == "" {
+			// try exe basename
+			if exe, e2 := p.Exe(); e2 == nil && exe != "" {
+				name = filepath.Base(exe)
+			}
 		}
-		pid, err1 := strconv.Atoi(fields[0])
-		ppid, err2 := strconv.Atoi(fields[1])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		// comm may contain spaces on some ps - join rest
-		name := strings.ToLower(filepath.Base(strings.Join(fields[2:], " ")))
-		// strip macOS "-zsh" style
+		name = strings.ToLower(filepath.Base(name))
 		name = strings.TrimPrefix(name, "-")
 		idx.comm[pid] = name
 		idx.children[ppid] = append(idx.children[ppid], pid)
@@ -75,46 +48,43 @@ func loadProcIndex() *procIndex {
 // detectPaneCmd: non-shell current -> non-shell start -> tool in process tree.
 // Returns binary base name only (e.g. "nvim").
 func detectPaneCmd(currentCmd, startCmd string, pid int32, procs *procIndex) string {
-	if base := binBase(currentCmd); base != "" && !shellNames[base] {
+	if base := toolclass.Intent(currentCmd); base != "" {
 		return base
 	}
-	if base := binBase(startCmd); base != "" && !shellNames[base] {
+	if base := toolclass.Intent(startCmd); base != "" {
+		return base
+	}
+	// raw base even if not in preferred list (non-shell)
+	if base := toolclass.Base(currentCmd); base != "" && !toolclass.IsShell(base) {
+		return base
+	}
+	if base := toolclass.Base(startCmd); base != "" && !toolclass.IsShell(base) {
 		return base
 	}
 	if pid <= 0 || procs == nil {
 		return ""
 	}
-	return procs.findTool(int(pid), 4)
+	return procs.findTool(pid, 4)
 }
 
 // ToolIntent: pane role tool (nvim, yazi, ...). Empty = default shell.
-// Not project essence - workflow intent attached to a pane slot.
+// Delegates to toolclass (single vocabulary).
 func ToolIntent(cmd string) string {
-	base := binBase(cmd)
-	if base == "" || shellNames[base] {
-		return ""
-	}
-	return base
+	return toolclass.Intent(cmd)
 }
 
 func binBase(cmd string) string {
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return ""
-	}
-	cmd = strings.TrimPrefix(cmd, "-")
-	fields := strings.Fields(cmd)
-	if len(fields) == 0 {
-		return ""
-	}
-	return strings.ToLower(filepath.Base(fields[0]))
+	return toolclass.Base(cmd)
 }
 
-// findTool: BFS children; prefer restoreTools, else first non-shell.
-func (p *procIndex) findTool(rootPID, maxDepth int) string {
-	type node struct{ pid, depth int }
+// findTool: BFS children; prefer toolclass preferred set, else first non-shell.
+func (p *procIndex) findTool(rootPID int32, maxDepth int) string {
+	type node struct {
+		pid   int32
+		depth int
+	}
 	q := []node{{rootPID, 0}}
-	seen := map[int]bool{rootPID: true}
+	seen := map[int32]bool{rootPID: true}
 	var fallback string
 
 	for len(q) > 0 {
@@ -122,12 +92,13 @@ func (p *procIndex) findTool(rootPID, maxDepth int) string {
 		q = q[1:]
 		if n.depth > 0 {
 			name := p.comm[n.pid]
-			if name == "" {
-				// continue walk
-			} else if restoreTools[name] {
-				return name
-			} else if fallback == "" && !shellNames[name] {
-				fallback = name
+			if name != "" {
+				if toolclass.IsPreferred(name) {
+					return name
+				}
+				if fallback == "" && !toolclass.IsShell(name) {
+					fallback = name
+				}
 			}
 		}
 		if n.depth >= maxDepth {

@@ -11,6 +11,7 @@ import (
 	"github.com/GianlucaP106/gotmux/gotmux"
 	"github.com/fm39hz/gotomux/internal/project"
 	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/toolclass"
 )
 
 var namedLayouts = map[string]bool{
@@ -253,8 +254,8 @@ func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 		for len(parts) < 10 {
 			parts = append(parts, "")
 		}
-		if base := binBase(parts[5]); base == "" || shellNames[base] {
-			if base := binBase(parts[6]); base == "" || shellNames[base] {
+		if base := toolclass.Base(parts[5]); base == "" || toolclass.IsShell(base) {
+			if base := toolclass.Base(parts[6]); base == "" || toolclass.IsShell(base) {
 				needPS = true
 				break
 			}

@@ -1,29 +1,17 @@
 package project
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
-// skipDir: never treat as umbrella children.
-var skipDir = map[string]bool{
-	".git": true, ".jj": true, ".hg": true, ".svn": true,
-	"node_modules": true, "vendor": true, "target": true,
-	"dist": true, "build": true, "out": true, "bin": true,
-	".cache": true, ".local": true, "__pycache__": true,
-	".idea": true, ".vscode": true, ".cursor": true,
-	".opencode": true, ".claude": true, ".codex": true,
-	".agents": true, ".codegraph": true, ".githooks": true,
-	".github": true, ".husky": true, "logs": true, "tmp": true,
-	"coverage": true, ".next": true, ".turbo": true,
-}
-
 // Children returns stable-ordered project-like subdirs of root for placement slots C0,C1,...
-// Order: gitmodules paths first (file order), then other nested projects by path.
+// Order: gitmodules paths first (go-git / fallback), then other nested projects by path.
 // Empty if root missing or flat.
+//
+// Signals (git is not sole source): submodules > nested git/markers.
 func Children(root string) []string {
 	root = filepath.Clean(root)
 	if root == "" || !DirExists(root) {
@@ -41,7 +29,6 @@ func Children(root string) []string {
 		if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 			return
 		}
-		// only direct or gitmodules path (may be nested one level typically)
 		if seen[abs] {
 			return
 		}
@@ -49,9 +36,9 @@ func Children(root string) []string {
 		out = append(out, abs)
 	}
 
-	// 1) .gitmodules paths (stable file order)
-	for _, rel := range gitmodulePaths(root) {
-		add(filepath.Join(root, rel))
+	// 1) .gitmodules paths (stable order) via go-git config + fallback
+	for _, sm := range ListSubmodules(root) {
+		add(filepath.Join(root, sm.Path))
 	}
 
 	// 2) direct children that look like projects
@@ -65,9 +52,6 @@ func Children(root string) []string {
 			continue
 		}
 		name := e.Name()
-		if strings.HasPrefix(name, ".") && skipDir[name] {
-			continue
-		}
 		if skipDir[name] {
 			continue
 		}
@@ -87,36 +71,11 @@ func Children(root string) []string {
 }
 
 func isChildProject(dir string) bool {
-	// nested git
+	if IsGitRepo(dir) {
+		return true
+	}
 	if DirExists(filepath.Join(dir, ".git")) || FileExists(filepath.Join(dir, ".git")) {
 		return true
 	}
 	return isProjectRoot(dir)
-}
-
-// gitmodulePaths: relative paths from .gitmodules, file order.
-func gitmodulePaths(root string) []string {
-	f, err := os.Open(filepath.Join(root, ".gitmodules"))
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var paths []string
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if !strings.HasPrefix(line, "path") {
-			continue
-		}
-		// path = foo  or path=foo
-		_, rest, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		p := strings.TrimSpace(rest)
-		if p != "" {
-			paths = append(paths, filepath.Clean(p))
-		}
-	}
-	return paths
 }
