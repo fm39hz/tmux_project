@@ -14,7 +14,7 @@ make run            # picker; ARGS='-f' / '-e name' / '-h'
 make test           # go test ./...
 make install        # $(go env GOPATH)/bin
 make help           # all targets
-make pkg            # Arch package → dist/*.pkg.tar.zst
+make pkg            # Arch package -> dist/*.pkg.tar.zst
 
 # raw go still fine:
 go build -o gotomux .
@@ -37,16 +37,16 @@ internal/
 
 ### Sources (picker)
 
-`Source` = paint `Snapshot` + optional bg `Refresh`. Order (dedup first-wins): create → tmux → preset → zoxide.
+`Source` = paint `Snapshot` + optional bg `Refresh`. Order (dedup first-wins): create -> tmux -> preset -> zoxide.
 Add remote later: implement `Source`, register in `defaultSources`, connect by `Item.Src`/`Host`.
 Deferred plan: `docs/todo.md` (local stable first; no remote until day-to-day is boring).
 
 ### Data flow
 
 1. **Paint**: each Source.Snapshot (zoxide = DB/mem cache).
-2. **Refresh**: zoxide full `query -l` in background → merge pool (empty query still caps top 40).
-3. **Connect**: create/zoxide → template bake; active → attach; preset → Load+attach.
-4. **Freeze**: live → Freeze → Store.Save.
+2. **Refresh**: zoxide full `query -l` in background -> merge pool (empty query still caps top 40).
+3. **Connect**: create/zoxide -> template bake; active -> attach; preset -> Load+attach.
+4. **Freeze**: live -> Freeze -> Store.Save.
 5. **Load** mirrors tmuxp: new-session/window/split; pin names; select-layout.
 
 ### Preset model
@@ -77,9 +77,9 @@ pane: /path |
 
 ### External deps
 
-- `gotmux` — session list/attach/switch/kill
-- `bubbletea` + `lipgloss` — TUI
-- `modernc.org/sqlite` — pure-Go sqlite
+- `gotmux` - session list/attach/switch/kill
+- `bubbletea` + `lipgloss` - TUI
+- `modernc.org/sqlite` - pure-Go sqlite
 - Runtime: `tmux` required; `zoxide query -l` optional; `/proc` for freeze cmd detection (Linux)
 
 ### Connect behavior

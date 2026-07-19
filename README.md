@@ -53,7 +53,7 @@ gotomux -h          # help
 | `enter`             | connect                     |
 | `ctrl-n` / `ctrl-p` | next / prev                 |
 | `ctrl-x`            | kill active                 |
-| `ctrl-f`            | freeze → preset             |
+| `ctrl-f`            | freeze -> preset             |
 | `ctrl-e` / `ctrl-d` | edit / delete preset        |
 | `ctrl-t`            | sticky shape from selection |
 | `?` / `esc`         | help / quit                 |
@@ -64,16 +64,16 @@ gotomux -h          # help
 | --------------- | ----------------------------------------------------- |
 | Active          | attach / switch                                       |
 | Preset          | load if missing, then attach                          |
-| Create / Zoxide | live → same-name preset → sticky shape @ project root |
+| Create / Zoxide | live -> same-name preset -> sticky shape @ project root |
 
-State: `$XDG_DATA_HOME/gotomux/state.db` (presets · shapes · sticky · usage)  
+State: `$XDG_DATA_HOME/gotomux/state.db` (presets | shapes | sticky | usage)  
 Shapes: `$XDG_CONFIG_HOME/gotomux/shapes/<id>.json`, 1-1 with DB (backup / git / hand-edit)
 
 ## Roadmap
 
 Local first.
 
-- [x] Picker sources: create · tmux · preset · zoxide
+- [x] Picker sources: create | tmux | preset | zoxide
 - [x] Freeze / load, sticky shapes, rank + accent fold
 - [x] `go install` / CI / local Arch package
 - [ ] Has smooth everyday usage until boring

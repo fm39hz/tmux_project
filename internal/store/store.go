@@ -42,7 +42,7 @@ func Open() (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	// One-shot: empty gotomux DB + legacy state → copy presets over.
+	// One-shot: empty gotomux DB + legacy state -> copy presets over.
 	_ = migrateLegacyDB(dir)
 	db, err := sql.Open("sqlite", filepath.Join(dir, "state.db"))
 	if err != nil {
@@ -63,7 +63,7 @@ func Open() (*Store, error) {
 	return s, nil
 }
 
-// pragma: personal-tool hygiene — WAL + reasonable sync + busy wait.
+// pragma: personal-tool hygiene - WAL + reasonable sync + busy wait.
 func (s *Store) pragma() error {
 	// modernc accepts these; ignore failures on exotic builds
 	pragmas := []string{
@@ -276,7 +276,7 @@ CREATE TABLE IF NOT EXISTS placement (
 		return err
 	}
 	// fork: window-level essence units learned from freeze/sticky (silent).
-	// key = paneCount|split|tools — same key = same reusable mảnh.
+	// key = paneCount|split|tools - same key = same reusable unit.
 	if _, err = s.db.Exec(`
 CREATE TABLE IF NOT EXISTS fork (
   key      TEXT PRIMARY KEY,

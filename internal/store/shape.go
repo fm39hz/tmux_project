@@ -15,8 +15,8 @@ type ShapeRow struct {
 	Body string
 }
 
-// SaveFreeze: ONE transaction — instance preset tree + pure shape (dedupe by key).
-// setSticky true → sticky points at resulting shape id in same tx.
+// SaveFreeze: ONE transaction - instance preset tree + pure shape (dedupe by key).
+// setSticky true -> sticky points at resulting shape id in same tx.
 // Call writeConfigMirror only AFTER this returns nil (post-commit).
 func (s *Store) SaveFreeze(p *Preset, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error) {
 	if p == nil {
@@ -261,7 +261,7 @@ func (s *Store) UpsertShapeByID(id, key, body string) error {
 	}
 	now := time.Now().Unix()
 	if exist, _, ok := s.GetShapeByKey(key); ok && exist != id {
-		// same essence under two ids → keep exist, merge pointers, delete id
+		// same essence under two ids -> keep exist, merge pointers, delete id
 		_, _ = s.db.Exec(`UPDATE shape SET body = ?, updated_at = ? WHERE id = ?`, body, now, exist)
 		_, _ = s.db.Exec(`UPDATE sticky SET shape_id = ? WHERE shape_id = ?`, exist, id)
 		// drop placement rows for duplicate id (patterns may already exist under exist)

@@ -18,7 +18,7 @@ import (
 // version set by dist/PKGBUILD: -ldflags "-X main.version=..."
 var version = "dev"
 
-// errCancel is user cancel (Esc / Ctrl+C in picker). Exit 0 — not a failure.
+// errCancel is user cancel (Esc / Ctrl+C in picker). Exit 0 - not a failure.
 var errCancel = errors.New("canceled")
 
 func main() {
@@ -48,16 +48,16 @@ func dispatch() error {
 		}
 		return editCLI(name)
 	case "-h", "--help":
-		fmt.Printf(`gotomux — session picker (go to mux) (%s)
+		fmt.Printf(`gotomux - session picker (go to mux) (%s)
 
 Usage:
   gotomux              interactive picker
   gotomux -f [name]    freeze session (arg, else current, else pick)
   gotomux -e [name]    edit preset in $EDITOR
 
-Keys (fzf-style combobox — type to filter anytime):
+Keys (fzf-style combobox - type to filter anytime):
   type          filter
-  ctrl-n/p      next/prev (also ↑/↓)
+  ctrl-n/p      next/prev (also ^/v)
   enter         connect
   ctrl-x        kill active
   ctrl-f        freeze into shape
@@ -77,7 +77,7 @@ Edit:   JSON {name,cwd,windows:[{name,split,panes:[{cwd,cmd}]}]}
 	}
 }
 
-// runPicker: interactive phase owns SIGINT → cancel = errCancel (exit 0).
+// runPicker: interactive phase owns SIGINT -> cancel = errCancel (exit 0).
 // After Enter, SIGINT is released before connect so a stuck attach can be killed.
 func runPicker() error {
 	ctl, err := tmux.New()
@@ -120,7 +120,7 @@ func runPicker() error {
 		res := fm.Done()
 		switch res.Action {
 		case picker.ActionConnect:
-			// --- phase: connect — SIGINT default (user may kill stuck attach) ---
+			// --- phase: connect - SIGINT default (user may kill stuck attach) ---
 			return connectItem(ctl, st, res.Item)
 		default:
 			// ActionQuit / ActionNone = user cancel
@@ -156,7 +156,7 @@ func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
 	if err != nil {
 		return err
 	}
-	// ranking telemetry — never fail the connect
+	// ranking telemetry - never fail the connect
 	if st != nil {
 		_ = st.RecordOpen(it.Name)
 		if live, e := ctl.ListLive(); e == nil {
@@ -173,7 +173,7 @@ func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {
 }
 
 // freezeCLI: pick/resolve name freely (cancel = exit 0); hold SIGINT only for ACID write.
-// Freeze remembers instance+shape; does NOT change sticky — that is intentional via ^t.
+// Freeze remembers instance+shape; does NOT change sticky - that is intentional via ^t.
 func freezeCLI(name string) error {
 	ctl, err := tmux.New()
 	if err != nil {
@@ -219,12 +219,12 @@ func freezeCLI(name string) error {
 	if err != nil {
 		dir = "(state.db)"
 	}
-	msg := fmt.Sprintf("froze %s → %s", name, filepath.Join(dir, "state.db"))
+	msg := fmt.Sprintf("froze %s -> %s", name, filepath.Join(dir, "state.db"))
 	if sid != "" {
 		if created {
-			msg += " · shape " + sid
+			msg += " | shape " + sid
 		} else {
-			msg += " · shape " + sid + " (exists)"
+			msg += " | shape " + sid + " (exists)"
 		}
 	}
 	fmt.Println(msg)

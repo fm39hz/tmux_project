@@ -38,11 +38,11 @@ func LayoutForStore(layout string, nPanes int) string {
 	return ""
 }
 
-// LayoutForShape: product split essence only — no pixel dumps, no ratios.
+// LayoutForShape: product split essence only - no pixel dumps, no ratios.
 //
-//	named → keep
-//	dump  → axis/grid class (even-horizontal | even-vertical | tiled)
-//	else  → "" (InferSplit defaults even-horizontal)
+//	named -> keep
+//	dump  -> axis/grid class (even-horizontal | even-vertical | tiled)
+//	else  -> "" (InferSplit defaults even-horizontal)
 //
 // Essence = how panes nest, not sizes/tools/paths.
 func LayoutForShape(layout string, nPanes int) string {
@@ -59,7 +59,7 @@ func LayoutForShape(layout string, nPanes int) string {
 }
 
 // classifyDump maps tmux window_layout to a portable named split.
-// { = horizontal cuts, [ = vertical cuts; both → tiled (nested grid).
+// { = horizontal cuts, [ = vertical cuts; both -> tiled (nested grid).
 func classifyDump(dump string) string {
 	h := strings.Contains(dump, "{")
 	v := strings.Contains(dump, "[")
@@ -75,8 +75,8 @@ func classifyDump(dump string) string {
 	}
 }
 
-// InferSplit materialises concrete split at bake (shape→instance), not Load.
-// multi-pane + empty → even-horizontal.
+// InferSplit materialises concrete split at bake (shape->instance), not Load.
+// multi-pane + empty -> even-horizontal.
 func InferSplit(layout string, nPanes int) string {
 	if nPanes <= 1 {
 		return ""
@@ -107,7 +107,7 @@ func New() (*Ctl, error) {
 type LiveSession struct {
 	Name         string
 	Windows      int
-	Path         string // session_path — for dedup vs zoxide
+	Path         string // session_path - for dedup vs zoxide
 	LastAttached int64  // unix; 0 if unknown
 	Activity     int64  // unix last pane activity
 	Created      int64  // unix session created
@@ -156,7 +156,7 @@ func (c *Ctl) Has(name string) bool {
 }
 
 // CurrentSession: attached session name, or empty outside tmux.
-// Uses gotmux Command (same socket path) — no extra raw exec import.
+// Uses gotmux Command (same socket path) - no extra raw exec import.
 func (c *Ctl) CurrentSession() string {
 	if os.Getenv("TMUX") == "" {
 		return ""
@@ -196,7 +196,7 @@ func (c *Ctl) run(args ...string) error {
 }
 
 // runChain: one tmux client process, commands separated by "\;" (literal).
-// Uses exec directly — gotmux Command error strings are opaque and some
+// Uses exec directly - gotmux Command error strings are opaque and some
 // chained forms confuse its query builder.
 func (c *Ctl) runChain(parts ...[]string) error {
 	var args []string
@@ -224,7 +224,7 @@ func (c *Ctl) runChain(parts ...[]string) error {
 // freezeFmt: one list-panes -s covers all windows/panes of a session.
 const freezeFmt = "#{window_index}\t#{window_name}\t#{window_layout}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_start_command}\t#{pane_pid}\t#{pane_active}\t#{session_path}"
 
-// Freeze: 1× list-panes + 1× ps snapshot (portable). No nested ListWindows/ListPanes.
+// Freeze: 1x list-panes + 1x ps snapshot (portable). No nested ListWindows/ListPanes.
 func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 	if !project.ValidSessionName(name) {
 		return nil, fmt.Errorf("invalid session name %q", name)
@@ -337,8 +337,8 @@ func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 	return p, nil
 }
 
-// Load executes a materialised preset only — no topology/placement inference.
-// Inference (even split, R/Ck cwd) happens at bake (shape→instance) before Load.
+// Load executes a materialised preset only - no topology/placement inference.
+// Inference (even split, R/Ck cwd) happens at bake (shape->instance) before Load.
 // One tmux client process; "\;" separators.
 // Targets: =sess: for new-window, =sess:N for window ops (base-index aware).
 func (c *Ctl) Load(p *store.Preset) error {
@@ -376,7 +376,7 @@ func (c *Ctl) Load(p *store.Preset) error {
 			}
 			parts = append(parts, sp)
 		}
-		// Load executes only — split already materialised at bake/freeze.
+		// Load executes only - split already materialised at bake/freeze.
 		if w.Layout != "" {
 			parts = append(parts, []string{"select-layout", "-t", t, w.Layout})
 		}
@@ -429,18 +429,18 @@ func (c *Ctl) windowBaseIndex() int {
 // sessionTarget: "=name:" forces session context (never a window of same name).
 // Bare -t name is ambiguous when a window is named like the session
 // (freeze stores cwd basename / automatic-rename). new-window then hits
-// that window → "create window failed: index N in use".
+// that window -> "create window failed: index N in use".
 func sessionTarget(session string) string {
 	return "=" + session + ":"
 }
 
-// windowTarget: "=name:N" — exact session + window index (base-index aware).
+// windowTarget: "=name:N" - exact session + window index (base-index aware).
 func windowTarget(session string, idx int) string {
 	return fmt.Sprintf("=%s:%d", session, idx)
 }
 
 // safeWindowName: empty if name breaks targets or equals session name.
-// Equals session → drop so we never reintroduce -t ambiguity after rename.
+// Equals session -> drop so we never reintroduce -t ambiguity after rename.
 func safeWindowName(name, session string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {

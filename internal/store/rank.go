@@ -44,7 +44,7 @@ ON CONFLICT(name) DO UPDATE SET
 	return err
 }
 
-// AllUsage returns name → usage for ranking merge.
+// AllUsage returns name -> usage for ranking merge.
 func (s *Store) AllUsage() (map[string]Usage, error) {
 	rows, err := s.db.Query(`SELECT name, opens, kills, last_open, last_kill FROM usage`)
 	if err != nil {

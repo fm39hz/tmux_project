@@ -74,7 +74,7 @@ func TestLoadGrimoireShape(t *testing.T) {
 		t.Fatalf("win1: %q want test:2", lines[1])
 	}
 
-	// only this session — no -a
+	// only this session - no -a
 	out, err = exec.Command("tmux", "list-panes", "-s", "-t", name,
 		"-F", "#{window_name}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_start_command}|#{pane_pid}").Output()
 	if err != nil {

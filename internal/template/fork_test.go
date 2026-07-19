@@ -17,14 +17,14 @@ func TestWindowForkKeyStableAcrossProjects(t *testing.T) {
 		Panes: []store.PresetPane{{Cwd: "/other/b/src", Cmd: "nvim"}},
 	}
 	if WindowForkKey(a) != WindowForkKey(b) {
-		t.Fatalf("nvim×1 must be one fork: %s vs %s", WindowForkKey(a), WindowForkKey(b))
+		t.Fatalf("nvimx1 must be one fork: %s vs %s", WindowForkKey(a), WindowForkKey(b))
 	}
 	shell := store.PresetWindow{
 		Layout: "even-vertical",
 		Panes:  []store.PresetPane{{}, {}},
 	}
 	if WindowForkKey(a) == WindowForkKey(shell) {
-		t.Fatal("editor ≠ shell-v2")
+		t.Fatal("editor != shell-v2")
 	}
 }
 
@@ -45,7 +45,7 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 			{Name: "yazi", Panes: []store.PresetPane{{Cmd: "yazi"}}},
 		},
 	}
-	// two freezes → hit counts
+	// two freezes -> hit counts
 	if _, _, err := FreezeSave(st, p, false); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 	sk := WindowForkKey(ToShape(p, "t").Windows[1])
 	yk := WindowForkKey(ToShape(p, "t").Windows[2])
 	if st.ForkHits(ek) < 2 {
-		t.Fatalf("editor-nvim hits %d want ≥2", st.ForkHits(ek))
+		t.Fatalf("editor-nvim hits %d want >=2", st.ForkHits(ek))
 	}
 	if st.ForkHits(sk) < 2 {
 		t.Fatalf("shell-v2 hits %d", st.ForkHits(sk))
@@ -73,7 +73,7 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 	if st.ForkHits(yk) < 2 {
 		t.Fatalf("yazi hits %d", st.ForkHits(yk))
 	}
-	// divergence: new agent window → new fork key
+	// divergence: new agent window -> new fork key
 	p3 := &store.Preset{
 		Name: "z", Cwd: "/z",
 		Windows: []store.PresetWindow{
@@ -87,6 +87,6 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 		t.Fatal("opencode fork not learned")
 	}
 	if ak == ek {
-		t.Fatal("agent ≠ editor")
+		t.Fatal("agent != editor")
 	}
 }

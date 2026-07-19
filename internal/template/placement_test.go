@@ -32,7 +32,7 @@ func TestPatternFromPresetUmbrella(t *testing.T) {
 	if pat != want {
 		t.Fatalf("got %q want %q", pat, want)
 	}
-	// all root → empty
+	// all root -> empty
 	flat := &store.Preset{
 		Cwd: root,
 		Windows: []store.PresetWindow{
@@ -77,7 +77,7 @@ func TestObserveAndBakePlacement(t *testing.T) {
 	if !ok {
 		t.Fatal("expected learned placement")
 	}
-	// children of rootA sorted: be, fe → freeze panes fe,be → C1,C0
+	// children of rootA sorted: be, fe -> freeze panes fe,be -> C1,C0
 	if pat != "R|C1,C0" {
 		t.Fatalf("learned %q want R|C1,C0 (alpha children be,fe)", pat)
 	}
@@ -99,7 +99,7 @@ func TestObserveAndBakePlacement(t *testing.T) {
 	if baked.Windows[0].Panes[0].Cwd != rootB {
 		t.Fatalf("w0 %s", baked.Windows[0].Panes[0].Cwd)
 	}
-	// C1,C0 → fe, be
+	// C1,C0 -> fe, be
 	if baked.Windows[1].Panes[0].Cwd != fe || baked.Windows[1].Panes[1].Cwd != be {
 		t.Fatalf("w1 panes %s %s want fe,be",
 			baked.Windows[1].Panes[0].Cwd, baked.Windows[1].Panes[1].Cwd)
@@ -134,7 +134,7 @@ func TestBakeMissingChildFallsBackRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	baked := bakeShape(st, tmpl, "s", root, "shape-x")
-	// C0=fe, C1 missing → root
+	// C0=fe, C1 missing -> root
 	if baked.Windows[1].Panes[0].Cwd != filepath.Join(root, "fe") {
 		t.Fatalf("c0 %s", baked.Windows[1].Panes[0].Cwd)
 	}

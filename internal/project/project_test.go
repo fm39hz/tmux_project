@@ -47,12 +47,12 @@ func TestFindProjectRootDotnet(t *testing.T) {
 }
 
 func TestSessionNameGenericPrefix(t *testing.T) {
-	// .../Foo/web → foo-web
+	// .../Foo/web -> foo-web
 	name := SessionName("/work/Foo/web")
 	if name != "foo-web" {
 		t.Fatalf("got %q", name)
 	}
-	// underscore → hyphen
+	// underscore -> hyphen
 	if n := SessionName("/work/my_app"); n != "my-app" {
 		t.Fatalf("got %q", n)
 	}

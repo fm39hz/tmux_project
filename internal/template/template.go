@@ -13,16 +13,16 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// Dual source for pure shapes — DB is runtime SSoT; config is 1-1 backup + hand-edit.
+// Dual source for pure shapes - DB is runtime SSoT; config is 1-1 backup + hand-edit.
 //
 //	Shape = topology only: window/pane counts (+ optional named split), role labels.
-//	No cwd/session/project paths — root at bake; tools are pane intent.
+//	No cwd/session/project paths - root at bake; tools are pane intent.
 //	Instance (preset session tree) keeps cwd/cmd; separate tables.
 //
-//	$id = shapes/<id>.json  ↔  shape.id
-//	Freeze / sticky → DB tx first, then mirror file (post-commit)
-//	Hand-edit JSON  → picked up once per process if mtime > shape.updated_at
-//	Same topology (ShapeKey) → reuse id
+//	$id = shapes/<id>.json  <->  shape.id
+//	Freeze / sticky -> DB tx first, then mirror file (post-commit)
+//	Hand-edit JSON  -> picked up once per process if mtime > shape.updated_at
+//	Same topology (ShapeKey) -> reuse id
 //
 
 func builtinDefault() *store.Preset {
@@ -46,7 +46,7 @@ func configBaseDir() string {
 }
 
 // configShapesDir: $XDG_CONFIG_HOME/gotomux/shapes (mirror of shape rows).
-// One-time: rename legacy layouts/ → shapes/ if shapes missing.
+// One-time: rename legacy layouts/ -> shapes/ if shapes missing.
 func configShapesDir() string {
 	base := configBaseDir()
 	if base == "" {
@@ -63,7 +63,7 @@ func configShapesDir() string {
 }
 
 // shapeFilePath: human label slug + short id suffix for uniqueness.
-// default → default.json; others → <label>--<8hex>.json
+// default -> default.json; others -> <label>--<8hex>.json
 func shapeFilePath(id, label string) string {
 	dir := configShapesDir()
 	if dir == "" || id == "" {
@@ -76,7 +76,7 @@ func shapeFilePath(id, label string) string {
 	if lab == "" || lab == "shape" {
 		lab = "shape"
 	}
-	// short stable suffix from id (shape-<16hex> → last 8)
+	// short stable suffix from id (shape-<16hex> -> last 8)
 	suf := id
 	if strings.HasPrefix(id, "shape-") && len(id) >= 14 {
 		suf = id[len(id)-8:]
@@ -114,7 +114,7 @@ func shapeLabelFromBody(id, body string) string {
 
 // reconcileConfigShapes rebuilds shapes/ from DB (SSoT):
 // normalize bodies, write label--suffix.json, delete orphan/legacy files.
-// Runs on sync and after freeze/stick — silent, no UI.
+// Runs on sync and after freeze/stick - silent, no UI.
 func reconcileConfigShapes(st *store.Store) {
 	if st == nil {
 		return
@@ -168,10 +168,10 @@ var syncOnce sync.Once
 // syncConfigToDB once per process. Dual-source rules (DB is SSoT for runtime):
 //
 //	config file for id:
-//	  - missing in DB → insert (new hand-added shape)
-//	  - mtime > DB.updated_at → hand-edit wins, UpsertShapeByID
-//	  - mtime <= DB.updated_at → DB wins, rewrite file from DB (backup catch-up)
-//	DB id without file → write mirror (backup fill)
+//	  - missing in DB -> insert (new hand-added shape)
+//	  - mtime > DB.updated_at -> hand-edit wins, UpsertShapeByID
+//	  - mtime <= DB.updated_at -> DB wins, rewrite file from DB (backup catch-up)
+//	DB id without file -> write mirror (backup fill)
 //
 // Freeze/sticky never read config on hot path after this once.
 func syncConfigToDB(st *store.Store) {
@@ -242,7 +242,7 @@ func syncConfigToDB(st *store.Store) {
 						// hand-edit newer than last freeze/export
 						_ = st.UpsertShapeByID(id, key, body)
 					} else if body != dbBody {
-						// DB newer or equal time but different — SSoT DB → fix file
+						// DB newer or equal time but different - SSoT DB -> fix file
 						writeConfigMirror(id, dbBody)
 					}
 				}
@@ -254,9 +254,9 @@ func syncConfigToDB(st *store.Store) {
 }
 
 
-// ToShape: shape essence — topology + pane tool intent.
+// ToShape: shape essence - topology + pane tool intent.
 //
-//	keep: pane count, split class (h/v/tiled), tool (nvim/yazi/…)
+//	keep: pane count, split class (h/v/tiled), tool (nvim/yazi/...)
 //	drop: cwd, abs paths, session name, pixel dumps, shell noise
 //
 // Tools are workflow intent of a pane slot, not project identity.
@@ -289,7 +289,7 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 				pw.Panes[j].Cmd = tmux.ToolIntent(w.Panes[j].Cmd)
 			}
 		}
-		// chrome only — not identity (ShapeKey/fork ignore Name)
+		// chrome only - not identity (ShapeKey/fork ignore Name)
 		pw.Name = windowChromeRole(w.Name, pw, i, sess, base)
 		out.Windows = append(out.Windows, pw)
 	}
@@ -334,7 +334,7 @@ func ShapeKey(p *store.Preset) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// shapeIDFrom: stable opaque id from key only — never from window titles/paths.
+// shapeIDFrom: stable opaque id from key only - never from window titles/paths.
 // "default" is reserved for builtin; all others shape-<16hex>.
 func shapeIDFrom(_ *store.Preset, key string) string {
 	if key == "" {
@@ -366,13 +366,13 @@ func mustParseShape(id, body string) *store.Preset {
 }
 
 // windowChromeRole: display role only (not ShapeKey/fork identity).
-// Prefer tool→role; else neutral role slug; never path/session/project basename.
+// Prefer tool->role; else neutral role slug; never path/session/project basename.
 func windowChromeRole(raw string, w store.PresetWindow, idx int, sess, projBase string) string {
 	n := len(w.Panes)
 	if n == 0 {
 		n = 1
 	}
-	// 1) tool intent → portable chrome
+	// 1) tool intent -> portable chrome
 	if role := roleFromTools(w); role != "" {
 		return role
 	}
@@ -401,7 +401,7 @@ func roleFromTools(w store.PresetWindow) string {
 		return ""
 	}
 	if len(tools) > 1 {
-		// mixed pane tools — first wins for tab title
+		// mixed pane tools - first wins for tab title
 		return chromeFromTool(tools[0])
 	}
 	return chromeFromTool(tools[0])
@@ -463,7 +463,7 @@ func neutralRoleSlug(name string) string {
 		}
 		return out
 	default:
-		// project-ish or custom — not portable chrome
+		// project-ish or custom - not portable chrome
 		return ""
 	}
 }
@@ -546,7 +546,7 @@ func LoadActive(st *store.Store) (*store.Preset, string, error) {
 	}
 	p, err := Parse(body)
 	if err != nil {
-		// corrupt shape row — fall back without hiding that we did
+		// corrupt shape row - fall back without hiding that we did
 		if err2 := ensureDefault(st); err2 != nil {
 			return builtinDefault(), "default", fmt.Errorf("parse shape %q: %w (and ensure default: %v)", id, err, err2)
 		}
@@ -626,9 +626,9 @@ func FreezeSave(st *store.Store, p *store.Preset, setSticky bool) (shapeID strin
 	return shapeID, shapeCreated, nil
 }
 
-// FreezeRemember: live session → instance+shape (setSticky=false always).
+// FreezeRemember: live session -> instance+shape (setSticky=false always).
 // Caller owns SIGINT (HoldInterrupt) around this if needed.
-// Does NOT change sticky — that is intentional via StickFrom / ^t.
+// Does NOT change sticky - that is intentional via StickFrom / ^t.
 func FreezeRemember(ctl *tmux.Ctl, st *store.Store, name string) (shapeID string, shapeCreated bool, err error) {
 	if ctl == nil {
 		return "", false, fmt.Errorf("freeze: nil tmux")
@@ -689,7 +689,7 @@ func ConnectProject(ctl *tmux.Ctl, st *store.Store, name, cwd string) error {
 	if err != nil {
 		return fmt.Errorf("load sticky shape: %w", err)
 	}
-	// silent: topology × learned placement × current children
+	// silent: topology x learned placement x current children
 	baked := bakeShape(st, tmpl, name, cwd, sid)
 	if err := ctl.ConnectPreset(baked); err != nil {
 		return fmt.Errorf("bake sticky %q as %q: %w", sid, name, err)

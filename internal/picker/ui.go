@@ -44,7 +44,7 @@ type model struct {
 	height   int
 	maxShow  int
 	help     bool      // ? toggles full key help
-	tmpl     string    // sticky template name (default|…)
+	tmpl     string    // sticky template name (default|...)
 	started  time.Time // swallow Alt-release ESC right after open (display-popup)
 	ctx      string    // current tmux session (co-occurrence context)
 	pairs    map[string]int64
@@ -54,10 +54,10 @@ type model struct {
 
 var (
 	styleCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
-	// weight: Active strongest → Preset → Create → Zoxide dimmest
+	// weight: Active strongest -> Preset -> Create -> Zoxide dimmest
 	styleActive = lipgloss.NewStyle().Foreground(lipgloss.Color("15")) // bright white
 	stylePreset = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))  // normal
-	styleCreate = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))  // cyan — action
+	styleCreate = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))  // cyan - action
 	styleZoxide = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // gray
 	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	styleStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
@@ -138,7 +138,7 @@ func (m *model) refilter() {
 	}
 }
 
-// refilterFromQuery: user edited filter → jump to best match.
+// refilterFromQuery: user edited filter -> jump to best match.
 func (m *model) refilterFromQuery() {
 	m.refilter()
 	m.cursor = 0
@@ -193,7 +193,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help = !m.help
 			return m, nil
 
-		case "ctrl+t": // sticky ← shape from selection; Create/Zox use it
+		case "ctrl+t": // sticky <- shape from selection; Create/Zox use it
 			if len(m.view) > 0 {
 				it := m.view[m.cursor]
 				var p *store.Preset
@@ -226,9 +226,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tmpl = template.ShapeLabel(template.ToShape(p, id))
 				}
 				if created {
-					m.status = "sticky ← " + m.tmpl + "  (new)"
+					m.status = "sticky <- " + m.tmpl + "  (new)"
 				} else {
-					m.status = "sticky ← " + m.tmpl
+					m.status = "sticky <- " + m.tmpl
 				}
 				return m, nil
 			}
@@ -310,15 +310,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 					if created {
-						m.status = "froze " + name + " · shape " + sid
+						m.status = "froze " + name + " | shape " + sid
 					} else if sid != "" {
-						m.status = "froze " + name + " · shape " + sid + " (exists)"
+						m.status = "froze " + name + " | shape " + sid + " (exists)"
 					} else {
 						m.status = "froze " + name
 					}
 					m.reload()
 				} else if it.Kind == KindPreset {
-					m.status = "session not running — attach first"
+					m.status = "session not running - attach first"
 				}
 			}
 			return m, nil
@@ -376,7 +376,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isModifierChord(msg) {
 				return m, nil
 			}
-			// plain printable → filter
+			// plain printable -> filter
 			if msg.Type == tea.KeyRunes {
 				for _, r := range msg.Runes {
 					if unicode.IsPrint(r) {
@@ -417,7 +417,7 @@ func (m *model) reload() {
 	m.refilter()
 }
 
-// FrameLines is fixed height of View — wipe residual inline UI after quit.
+// FrameLines is fixed height of View - wipe residual inline UI after quit.
 func (m model) FrameLines() int {
 	maxShow := m.maxShow
 	if maxShow <= 0 {
@@ -511,18 +511,18 @@ func trimLastWord(s string) string {
 func (m model) View() string {
 	var b strings.Builder
 
-	// Filter line — fzf-like "> ", NOT shell ❯ (avoids double-prompt look under fish/starship).
+	// Filter line - fzf-like "> ", NOT shell prompt glyph (avoids double-prompt look under fish/starship).
 	// Shell chrome stays above; we only own the inline block below the real prompt.
-	b.WriteString(styleDim.Render("❯ "))
+	b.WriteString(styleDim.Render("> "))
 	b.WriteString(m.query)
 	// count + keys on same line as filter (compact, less "second shell")
 	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
 	if m.help {
-		meta += "  ^n/p · enter · ^t sticky · ^x kill · ^f freeze · ^e edit · ^d del · ^u/^w · esc"
+		meta += "  ^n/p | enter | ^t sticky | ^x kill | ^f freeze | ^e edit | ^d del | ^u/^w | esc"
 	} else if m.tmpl != "" && m.tmpl != "default" {
-		meta += "  sticky:" + m.tmpl + "  enter · esc · ?"
+		meta += "  sticky:" + m.tmpl + "  enter | esc | ?"
 	} else {
-		meta += "  enter · esc · ?"
+		meta += "  enter | esc | ?"
 	}
 	b.WriteString(styleHeader.Render(meta))
 	b.WriteByte('\n')
@@ -556,7 +556,7 @@ func (m model) View() string {
 				line = truncateRunes(line, m.width-2)
 			}
 			if i == m.cursor {
-				b.WriteString(styleCursor.Render("▸ " + line))
+				b.WriteString(styleCursor.Render("> " + line))
 			} else {
 				b.WriteString(styleFor(it.Kind).Render("  " + line))
 			}
@@ -570,7 +570,7 @@ func (m model) View() string {
 		shown++
 	}
 
-	// status always occupies 1 line — fixed frame height for clearInline
+	// status always occupies 1 line - fixed frame height for clearInline
 	if m.status != "" {
 		b.WriteString(styleStatus.Render(m.status))
 	}

@@ -21,8 +21,8 @@ ON CONFLICT(shape_id, pattern) DO UPDATE SET
 	return err
 }
 
-// BestPlacement returns highest-count pattern for shape (tie → newest last).
-// ok=false if none or weak (n < 1 — any observation counts for v1).
+// BestPlacement returns highest-count pattern for shape (tie -> newest last).
+// ok=false if none or weak (n < 1 - any observation counts for v1).
 func (s *Store) BestPlacement(shapeID string) (pattern string, ok bool) {
 	shapeID = strings.TrimSpace(shapeID)
 	if shapeID == "" {

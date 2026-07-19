@@ -30,7 +30,7 @@ func TestToShapeEssence(t *testing.T) {
 		t.Fatalf("editor tool intent: %+v", sh.Windows[0].Panes[0])
 	}
 	if sh.Windows[1].Layout != "even-vertical" {
-		t.Fatalf("v-dump → even-vertical: %q", sh.Windows[1].Layout)
+		t.Fatalf("v-dump -> even-vertical: %q", sh.Windows[1].Layout)
 	}
 	if sh.Windows[1].Panes[0].Cmd != "go" {
 		t.Fatalf("tool intent binBase: %q", sh.Windows[1].Panes[0].Cmd)
@@ -45,7 +45,7 @@ func TestToShapeEssence(t *testing.T) {
 }
 
 func TestShapeKeyIgnoresPathsKeepsTools(t *testing.T) {
-	// same topology+tools, different paths/names → same key
+	// same topology+tools, different paths/names -> same key
 	a := ToShape(&store.Preset{
 		Name: "proj-a", Cwd: "/work/a",
 		Windows: []store.PresetWindow{
@@ -63,7 +63,7 @@ func TestShapeKeyIgnoresPathsKeepsTools(t *testing.T) {
 	if ShapeKey(a) != ShapeKey(b) {
 		t.Fatalf("paths must not affect key: %s vs %s", ShapeKey(a), ShapeKey(b))
 	}
-	// different tool intent → different key
+	// different tool intent -> different key
 	c := ToShape(&store.Preset{
 		Windows: []store.PresetWindow{
 			{Panes: []store.PresetPane{{Cmd: "vim"}}},
@@ -101,7 +101,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "cfg"))
-	// reset syncOnce for this package — new process via test is enough per package
+	// reset syncOnce for this package - new process via test is enough per package
 	// but syncOnce is process-global; first call wins for this test file order
 	st, err := store.Open()
 	if err != nil {
@@ -165,7 +165,7 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 		t.Fatal("no json")
 	}
 	// hand-edit: change file, reopen store sync should load
-	// (syncOnce already ran — test hand path via Upsert only)
+	// (syncOnce already ran - test hand path via Upsert only)
 	body, _ := st.GetShape(id1)
 	if body == "" {
 		t.Fatal("empty body")
@@ -290,7 +290,7 @@ func TestToShapeStripsPathWindowNames(t *testing.T) {
 	if sh.Windows[0].Name != "editor" {
 		t.Fatalf("role kept: %q", sh.Windows[0].Name)
 	}
-	// path name dropped; tool intent → chrome role
+	// path name dropped; tool intent -> chrome role
 	if sh.Windows[1].Name != "claude" && sh.Windows[1].Name != "editor" {
 		// claude is multi-agent tool chrome (kept as tool name)
 		t.Fatalf("path chrome: got %q", sh.Windows[1].Name)
@@ -334,8 +334,8 @@ func TestWindowChromeFromTools(t *testing.T) {
 	sh := ToShape(&store.Preset{
 		Name: "proj", Cwd: "/work/proj",
 		Windows: []store.PresetWindow{
-			{Name: "proj", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // session-like name → editor via tool
-			{Name: "cong", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // branch label → editor via tool
+			{Name: "proj", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // session-like name -> editor via tool
+			{Name: "cong", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // branch label -> editor via tool
 			{Name: "whatever", Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
 			{Name: "/home/x/.cache/", Panes: []store.PresetPane{{Cmd: "yazi"}}},
 			{Name: "opencode", Panes: []store.PresetPane{{Cmd: "opencode"}}},

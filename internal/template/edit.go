@@ -13,12 +13,12 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// JSON format for shapes/presets — human product vocabulary only.
+// JSON format for shapes/presets - human product vocabulary only.
 //
-// Shape (essence — freeze/sticky mirror under shapes/<id>.json):
+// Shape (essence - freeze/sticky mirror under shapes/<id>.json):
 //
 //	{
-//	  "name": "shape-…",
+//	  "name": "shape-...",
 //	  "windows": [
 //	    {"name": "editor", "panes": [{"cmd": "nvim"}]},
 //	    {"name": "shell", "split": "even-vertical", "panes": [{}, {}]},
@@ -27,8 +27,8 @@ import (
 //	}
 //
 //	split: even-horizontal | even-vertical | main-* | tiled
-//	       omit → bake infers even-horizontal when panes > 1
-//	cmd:   tool intent on that pane (nvim, yazi, opencode, …); omit = shell
+//	       omit -> bake infers even-horizontal when panes > 1
+//	cmd:   tool intent on that pane (nvim, yazi, opencode, ...); omit = shell
 //	never: tmux dump strings, abs paths, % ratios, cwd on pure shapes
 //
 // Instance presets may add "cwd" for restore-that-session only.
@@ -148,7 +148,7 @@ func Parse(text string) (*store.Preset, error) {
 		}
 		split := w.splitValue()
 		if split != "" && !tmux.IsNamedLayout(split) {
-			// tmux dump → portable class; never keep pixel soup in product format
+			// tmux dump -> portable class; never keep pixel soup in product format
 			if tmux.IsLayoutDump(split) {
 				split = tmux.LayoutForShape(split, nPanes)
 			} else {
@@ -240,7 +240,7 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 			return err
 		}
 		if len(names) == 0 {
-			return fmt.Errorf("no presets — freeze one first")
+			return fmt.Errorf("no presets - freeze one first")
 		}
 		picked, err := pick(names)
 		if err != nil || picked == "" {
@@ -290,7 +290,7 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 		return err
 	}
 	outDir, _ := store.DataDir()
-	fmt.Println("saved", np.Name, "→", filepath.Join(outDir, "state.db"))
+	fmt.Println("saved", np.Name, "->", filepath.Join(outDir, "state.db"))
 	return nil
 }
 

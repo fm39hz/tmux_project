@@ -8,13 +8,13 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// ShapeLabel builds a short human slug from shape essence (algorithmic — no ML).
+// ShapeLabel builds a short human slug from shape essence (algorithmic - no ML).
 // Examples: "nvim+v2+yazi", "nvim+t4+yazi+opencode", "default"
 //
 // Rules:
-//   - one pane + tool  → tool name (nvim, yazi, opencode, …)
-//   - multi pane, no tool → split class short: v2 / h2 / t4 / pN
-//   - multi + tools    → tool(s) + count if needed
+//   - one pane + tool  -> tool name (nvim, yazi, opencode, ...)
+//   - multi pane, no tool -> split class short: v2 / h2 / t4 / pN
+//   - multi + tools    -> tool(s) + count if needed
 //   - join windows with "+"
 //   - path/session noise already stripped by ToShape roles
 func ShapeLabel(p *store.Preset) string {
@@ -22,7 +22,7 @@ func ShapeLabel(p *store.Preset) string {
 		return "empty"
 	}
 	if p.Name == "default" {
-		// builtin 2×1 empty → keep stable word
+		// builtin 2x1 empty -> keep stable word
 		if len(p.Windows) == 2 && len(p.Windows[0].Panes) <= 1 && len(p.Windows[1].Panes) <= 1 {
 			if toolOf(p.Windows[0]) == "" && toolOf(p.Windows[1]) == "" {
 				return "default"
@@ -39,7 +39,7 @@ func ShapeLabel(p *store.Preset) string {
 	}
 	// hard cap for UI chrome
 	if len(lab) > 48 {
-		lab = lab[:47] + "…"
+		lab = lab[:47] + "..."
 	}
 	return lab
 }
@@ -56,11 +56,11 @@ func windowLabel(w store.PresetWindow) string {
 	case len(tools) == 1 && n == 1:
 		return tools[0]
 	case len(tools) == 1 && n > 1:
-		return fmt.Sprintf("%s×%d", tools[0], n)
+		return fmt.Sprintf("%sx%d", tools[0], n)
 	case len(tools) > 1:
 		return strings.Join(tools, "/")
 	case n == 1:
-		// empty shell pane — prefer short role if any
+		// empty shell pane - prefer short role if any
 		if r := roleSlug(w.Name); r != "" && r != "shell" && !strings.HasPrefix(r, "w") {
 			return r
 		}
@@ -132,14 +132,12 @@ func LabelFileSlug(label string) string {
 	var b strings.Builder
 	for _, r := range label {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '+', r == '×':
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '+', r == 'x':
 			b.WriteRune(r)
 		case r >= 'A' && r <= 'Z':
 			b.WriteRune(r + ('a' - 'A'))
 		case r == '/' || r == ' ':
 			b.WriteByte('-')
-		case r == '…':
-			// skip
 		}
 	}
 	s := b.String()

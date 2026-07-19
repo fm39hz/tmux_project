@@ -11,28 +11,28 @@ import (
 
 // Ranking: lexicographic rankKey (not a single ad-hoc sum).
 //
-//	tier    — match quality band (lower = better). Kind never outranks a better tier.
-//	kind    — domain preference within tier (higher = better).
-//	detail  — within-tier match quality (higher = better).
-//	recency — app frecency (opens/kills/time) or fallback preset/zoxide (higher = better).
-//	cooccur — pair score with current session (higher = better); 0 if no context.
-//	pathQ   — shallower path (higher = better): -depth.
-//	idx     — stable input order.
+//	tier    - match quality band (lower = better). Kind never outranks a better tier.
+//	kind    - domain preference within tier (higher = better).
+//	detail  - within-tier match quality (higher = better).
+//	recency - app frecency (opens/kills/time) or fallback preset/zoxide (higher = better).
+//	cooccur - pair score with current session (higher = better); 0 if no context.
+//	pathQ   - shallower path (higher = better): -depth.
+//	idx     - stable input order.
 //
-// Idle (empty q): tier=0; sort kind → recency (tmux last_attached/activity, usage max) → cooccur → pathQ → idx.
+// Idle (empty q): tier=0; sort kind -> recency (tmux last_attached/activity, usage max) -> cooccur -> pathQ -> idx.
 // Inside tmux, current session recency is demoted so "just left" surfaces first.
 //
-// Frecency (usage table): opens with day-decay minus kill penalty — see frecencyScore.
+// Frecency (usage table): opens with day-decay minus kill penalty - see frecencyScore.
 //
 // Typed tiers:
 //
-//	0 token  — full name/basename == q, OR a name segment == q
-//	1 prefix — label/segment HasPrefix(q)
-//	2 substr — mid-string contains q
-//	3 fuzzy  — rune subsequence
-//	4 path   — path segments only
+//	0 token  - full name/basename == q, OR a name segment == q
+//	1 prefix - label/segment HasPrefix(q)
+//	2 substr - mid-string contains q
+//	3 fuzzy  - rune subsequence
+//	4 path   - path segments only
 //
-// Multi-token query (whitespace): AND — every token must match; tier = worst token tier;
+// Multi-token query (whitespace): AND - every token must match; tier = worst token tier;
 // detail = sum of per-token details.
 //
 // Segments: split on - _ . space, plus CamelCase / acronym boundaries.
@@ -152,7 +152,7 @@ func densityDetail(q, target string) int32 {
 	return detailDensity * int32(len(q)) / int32(len(target))
 }
 
-// camelSplit breaks CamelCase and acronyms: "APIConfiguration" → API, Configuration.
+// camelSplit breaks CamelCase and acronyms: "APIConfiguration" -> API, Configuration.
 func camelSplit(s string) []string {
 	runes := []rune(s)
 	if len(runes) == 0 {
@@ -167,7 +167,7 @@ func camelSplit(s string) []string {
 			if unicode.IsLower(prev) {
 				br = true
 			} else if i+1 < len(runes) && unicode.IsLower(runes[i+1]) && unicode.IsUpper(prev) {
-				// XMLParser → break before P
+				// XMLParser -> break before P
 				br = true
 			}
 		}
@@ -184,8 +184,8 @@ func camelSplit(s string) []string {
 	return segs
 }
 
-// foldDiacritic: NFD → strip marks → lower; Vietnamese đ/Đ → d.
-// Match-time only — stored names stay as-is.
+// foldDiacritic: NFD -> strip marks -> lower; Vietnamese đ/Đ -> d.
+// Match-time only - stored names stay as-is.
 func foldDiacritic(s string) string {
 	if s == "" {
 		return ""
@@ -206,7 +206,7 @@ func foldDiacritic(s string) string {
 	b.Grow(len(de))
 	for _, r := range de {
 		if unicode.Is(unicode.Mn, r) {
-			continue // combining marks (acute, grave, horn, …)
+			continue // combining marks (acute, grave, horn, ...)
 		}
 		switch r {
 		case 'đ', 'Đ':
@@ -449,12 +449,12 @@ func frecencyScore(opens, kills, lastOpen, lastKill, now int64) int64 {
 	return score
 }
 
-// usageRecency maps stored Usage → rank recency key at "now".
+// usageRecency maps stored Usage -> rank recency key at "now".
 func usageRecency(u store.Usage, now int64) int64 {
 	return frecencyScore(u.Opens, u.Kills, u.LastOpen, u.LastKill, now)
 }
 
-// rankOf builds the sort key. ok=false → drop.
+// rankOf builds the sort key. ok=false -> drop.
 func rankOf(q string, it Item, idx int) (rankKey, bool) {
 	kr := kindRank(it.Kind)
 	pq := pathQuality(it.Path)

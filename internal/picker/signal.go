@@ -19,7 +19,7 @@ func DrainSignals(ch <-chan os.Signal) {
 }
 
 // HoldInterrupt discards SIGINT for a short critical section (freeze/save tx).
-// Call stop() when the section ends — restores default disposition after drain.
+// Call stop() when the section ends - restores default disposition after drain.
 func HoldInterrupt() (stop func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt)
@@ -28,7 +28,7 @@ func HoldInterrupt() (stop func()) {
 		for {
 			select {
 			case <-ch:
-				// discard — ACID section must finish
+				// discard - ACID section must finish
 			case <-done:
 				return
 			}
@@ -42,8 +42,8 @@ func HoldInterrupt() (stop func()) {
 }
 
 // RunCancellable runs a Bubble Tea program while owning SIGINT as cancel.
-// SIGINT → p.Quit(); tea.ErrInterrupted is returned as (model, nil) with no extra error
-// when the model already quit — callers treat cancel via their model state.
+// SIGINT -> p.Quit(); tea.ErrInterrupted is returned as (model, nil) with no extra error
+// when the model already quit - callers treat cancel via their model state.
 // The returned error is only a real program failure (not interrupt).
 func RunCancellable(p *tea.Program) (tea.Model, error) {
 	sigCh := make(chan os.Signal, 1)
@@ -63,6 +63,6 @@ func RunCancellable(p *tea.Program) (tea.Model, error) {
 	if err != nil && err != tea.ErrInterrupted {
 		return final, err
 	}
-	// interrupt/cancel → model may be partial; caller reads Done()/name
+	// interrupt/cancel -> model may be partial; caller reads Done()/name
 	return final, nil
 }

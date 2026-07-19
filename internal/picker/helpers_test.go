@@ -32,7 +32,7 @@ func TestRankIdleKindOrder(t *testing.T) {
 
 func TestRankTierLexicographic(t *testing.T) {
 	// Better match tier always wins over kind.
-	// Zoxide exact "foo" vs Active fuzzy-only would still lose if Active only path-matches weakly —
+	// Zoxide exact "foo" vs Active fuzzy-only would still lose if Active only path-matches weakly -
 	// here: Zoxide exact name vs Active substr on longer name.
 	q := "foo"
 	zoxExact := Item{Kind: KindZoxide, Name: "foo", Path: "/z/foo"}
@@ -93,15 +93,15 @@ func TestRankInvariantBetterTierWin(t *testing.T) {
 
 func TestRankKhoActiveOverDeepExactZox(t *testing.T) {
 	// Product rule: segment-exact on Active "kho-cong" ranks above path-deep Zoxide exact "kho"
-	// when we prefer shallower + kind — actually both: Active segExact tier1 vs Zox exact tier0.
+	// when we prefer shallower + kind - actually both: Active segExact tier1 vs Zox exact tier0.
 	// Exact label is BETTER tier than segExact. So pure tier would put zox "kho" first.
 	// Professional product choice for session picker:
 	//   prefer Active/Preset with q as full segment over Zoxide whose whole name equals q
-	//   if the zox path is deeper (leaf folder) — encoded as: boost segExact on Active via kind
+	//   if the zox path is deeper (leaf folder) - encoded as: boost segExact on Active via kind
 	//   BUT invariant says kind cannot beat tier.
 	// Resolution used: treat name exact and segment exact as SAME tier band with detail
 	// preferring longer structured names?
-	// Final policy in impl: tierExact and tierSegExact — Active+segExact should win for UX.
+	// Final policy in impl: tierExact and tierSegExact - Active+segExact should win for UX.
 	// We implement by: segment exact on multi-segment label gets detail boost;
 	// AND we compare path depth so shallow project root wins.
 	q := "kho"
@@ -137,7 +137,7 @@ func TestRankConfiPresetOverShortZoxAndPathChild(t *testing.T) {
 			k := mustKey(q, it)
 			tiers = append(tiers, it.Name+":"+itoa(int(k.tier)))
 		}
-		// nvim pathOnly=5; others prefix=2 — nvim last
+		// nvim pathOnly=5; others prefix=2 - nvim last
 		if mustKey(q, child).tier != tierPath {
 			t.Fatalf("nvim should be pathOnly: %+v %v", mustKey(q, child), tiers)
 		}
@@ -217,7 +217,7 @@ func TestFoldDiacritic(t *testing.T) {
 }
 
 func TestRankAccentInsensitive(t *testing.T) {
-	// gôt → gotomux (diacritic fold + prefix/fuzzy)
+	// gôt -> gotomux (diacritic fold + prefix/fuzzy)
 	it := Item{Kind: KindActive, Name: "gotomux", Path: "/w/gotomux"}
 	for _, q := range []string{"got", "gôt", "GÔT", "gotomux", "gôtomux"} {
 		k, ok := rankOf(q, it, 0)
@@ -276,7 +276,7 @@ func TestRankMultiTokenAND(t *testing.T) {
 
 func TestRankCamelCaseSegment(t *testing.T) {
 	q := "config"
-	// API.Configuration → configuration segment via . and camel
+	// API.Configuration -> configuration segment via . and camel
 	it := Item{Kind: KindZoxide, Name: "api-configuration", Path: "/x/NKT.APIs/API.Configuration"}
 	k, ok := rankOf(q, it, 0)
 	if !ok {
@@ -293,7 +293,7 @@ func TestRankRecencyWithinSameTier(t *testing.T) {
 	q := "demo"
 	newer := Item{Kind: KindPreset, Name: "demo", Path: "/a", Recency: 200}
 	older := Item{Kind: KindPreset, Name: "demo-old", Path: "/b", Recency: 100}
-	// demo exact vs demo-old prefix — different tiers. Use two exact-ish presets via segment.
+	// demo exact vs demo-old prefix - different tiers. Use two exact-ish presets via segment.
 	// Better: two zoxide same tier prefix with different recency
 	a := Item{Kind: KindZoxide, Name: "demoapp", Path: "/z/demoapp", Recency: 10}
 	b := Item{Kind: KindZoxide, Name: "demokit", Path: "/z/demokit", Recency: 50}
@@ -311,7 +311,7 @@ func TestRankRecencyWithinSameTier(t *testing.T) {
 }
 
 func TestRankRecencyPresetLastUsed(t *testing.T) {
-	// idle list: among presets kind equal — higher last_used first when same kind block
+	// idle list: among presets kind equal - higher last_used first when same kind block
 	// idle uses kind first so Create/Active still on top; among two presets:
 	pool := []Item{
 		{Kind: KindPreset, Name: "old", Recency: 1},
@@ -366,7 +366,7 @@ func TestRankCooccurBreaksRecencyTie(t *testing.T) {
 }
 
 func TestRankCooccurBelowRecency(t *testing.T) {
-	// same name shape → equal tier/detail/kind; recency must beat cooccur
+	// same name shape -> equal tier/detail/kind; recency must beat cooccur
 	q := "svcxx"
 	hot := Item{Kind: KindZoxide, Name: "svcxx-a", Path: "/z/svcxx-a", Recency: 500, Cooccur: 0}
 	paired := Item{Kind: KindZoxide, Name: "svcxx-b", Path: "/z/svcxx-b", Recency: 10, Cooccur: 999}
@@ -382,7 +382,7 @@ func TestRankCooccurBelowRecency(t *testing.T) {
 }
 
 func TestPairCanonical(t *testing.T) {
-	// unit-level: RecordPair order independence via store if possible — skip if no db
+	// unit-level: RecordPair order independence via store if possible - skip if no db
 	// just ensure applyCooccur maps names
 	items := []Item{{Name: "b"}, {Name: "c"}}
 	applyCooccur(items, map[string]int64{"b": 7, "x": 1})

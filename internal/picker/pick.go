@@ -104,12 +104,12 @@ func (m pickModel) View() string {
 	var b strings.Builder
 	b.WriteString(m.query)
 	b.WriteString("\n")
-	b.WriteString(styleHeader.Render("  freeze session  ctrl-n/p · enter · esc"))
+	b.WriteString(styleHeader.Render("  freeze session  ctrl-n/p | enter | esc"))
 	b.WriteString("\n")
 	for i, n := range m.view {
 		line := n
 		if i == m.cursor {
-			b.WriteString(styleCursor.Render("▸ " + line))
+			b.WriteString(styleCursor.Render("> " + line))
 		} else {
 			b.WriteString(stylePreset.Render("  " + line))
 		}

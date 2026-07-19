@@ -131,7 +131,7 @@ func deleteSessionsForSave(tx *sql.Tx, name, cwd string) error {
 	if _, err := tx.Exec(`DELETE FROM session WHERE name = ?`, name); err != nil {
 		return err
 	}
-	// same project root → one preset per project path
+	// same project root -> one preset per project path
 	if cwd != "" {
 		if _, err := tx.Exec(`DELETE FROM session WHERE cwd = ? AND name != ?`, cwd, name); err != nil {
 			return err
@@ -194,9 +194,9 @@ func (s *Store) Delete(name string) error {
 	return err
 }
 
-// RebindName moves ranking telemetry old→new after preset rename.
+// RebindName moves ranking telemetry old->new after preset rename.
 // usage rows merge (opens/kills sum, last_* max); pair endpoints rewrite.
-// Best-effort for ranking only — never blocks Save.
+// Best-effort for ranking only - never blocks Save.
 func (s *Store) RebindName(old, newName string) error {
 	old, newName = strings.TrimSpace(old), strings.TrimSpace(newName)
 	if old == "" || newName == "" || old == newName {
@@ -264,7 +264,7 @@ ON CONFLICT(name) DO UPDATE SET
 			b = newName
 		}
 		if a == b {
-			continue // self-pair after rename — drop
+			continue // self-pair after rename - drop
 		}
 		if a > b {
 			a, b = b, a

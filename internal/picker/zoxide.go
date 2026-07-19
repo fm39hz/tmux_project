@@ -119,7 +119,7 @@ func rebuildZoxItems() []Item {
 	if len(paths) == 0 {
 		return nil
 	}
-	// full list — low-rank paths stay searchable after merge; paint already done
+	// full list - low-rank paths stay searchable after merge; paint already done
 	items := zoxideItems(paths, nil, nil)
 	if len(items) > 0 {
 		saveZoxItems(items)

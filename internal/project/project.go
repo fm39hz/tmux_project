@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// Project root markers — nearest walk-up wins (innermost).
+// Project root markers - nearest walk-up wins (innermost).
 var projectMarkers = []string{
 	".git", ".jj", ".hg",
 	"package.json", "pnpm-workspace.yaml", "turbo.json", "nx.json", "lerna.json",
@@ -139,7 +139,7 @@ func sanitizeSessionPart(s string) string {
 	return strings.Trim(s, "-")
 }
 
-// ValidSessionName: tmux targets use "sess:win" — colon/control break them.
+// ValidSessionName: tmux targets use "sess:win" - colon/control break them.
 func ValidSessionName(name string) bool {
 	if name == "" {
 		return false

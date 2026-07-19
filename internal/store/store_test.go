@@ -8,7 +8,7 @@ func TestSaveOverwritesAliasAndCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	// isolate: use unique cwd under temp — but store is real user db.
+	// isolate: use unique cwd under temp - but store is real user db.
 	// Use distinctive names that won't collide with user presets.
 	a := &Preset{
 		Name: "zztestalias",

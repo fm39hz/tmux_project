@@ -12,7 +12,7 @@ import (
 )
 
 // Placement pattern: per-pane slots joined by "," within window, windows by "|".
-// Slot: "R" = project root, "C0"/"C1"/… = Children(root)[k], missing → R at bake.
+// Slot: "R" = project root, "C0"/"C1"/... = Children(root)[k], missing -> R at bake.
 //
 // Learned only from freeze (ObservePlacement). Never user-facing.
 // Apply uses BestPlacement when confidence ok; else all-root.
@@ -76,7 +76,7 @@ func slotOf(root string, children []string, cwd string) string {
 	if best >= 0 {
 		return fmt.Sprintf("C%d", best)
 	}
-	// under root but not a known child (e.g. src/) → treat as R for placement
+	// under root but not a known child (e.g. src/) -> treat as R for placement
 	if rel, err := filepath.Rel(root, cwd); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "R"
 	}
@@ -95,9 +95,9 @@ func ObservePlacement(st *store.Store, shapeID string, p *store.Preset) {
 	_ = st.RecordPlacement(shapeID, pat)
 }
 
-// bakeShape materialises shape → instance: placement slots + inferred split.
+// bakeShape materialises shape -> instance: placement slots + inferred split.
 // All inference lives here; Load only runs the resulting preset.
-// st/shapeID optional — without them, all panes = root, even split.
+// st/shapeID optional - without them, all panes = root, even split.
 func bakeShape(st *store.Store, tmpl *store.Preset, name, root, shapeID string) *store.Preset {
 	if root == "" {
 		root, _ = os.Getwd()

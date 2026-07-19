@@ -43,7 +43,7 @@ func TestChildrenGitmodulesAndMarkers(t *testing.T) {
 		t.Fatalf("marker child missing: %v", ch)
 	}
 	if bases["node_modules"] || bases["docs"] {
-		// docs may not be project root without markers — ok if absent
+		// docs may not be project root without markers - ok if absent
 	}
 	if bases["node_modules"] {
 		t.Fatal("node_modules must skip")

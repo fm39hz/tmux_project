@@ -55,7 +55,7 @@ func occupancy(items []Item) (names, paths map[string]bool) {
 	return names, paths
 }
 
-// zoxideItems: collapse path → project root; recency from zoxide order.
+// zoxideItems: collapse path -> project root; recency from zoxide order.
 func zoxideItems(zpaths []string, names, paths map[string]bool) []Item {
 	if names == nil {
 		names = map[string]bool{}

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// shells — not restored as pane cmd
+// shells - not restored as pane cmd
 var shellNames = map[string]bool{
 	"sh": true, "bash": true, "zsh": true, "fish": true,
 	"nu": true, "nushell": true, "dash": true, "ash": true,
@@ -34,7 +34,7 @@ type procIndex struct {
 	comm     map[int]string
 }
 
-// loadProcIndex runs a single `ps` — no /proc dependency.
+// loadProcIndex runs a single `ps` - no /proc dependency.
 func loadProcIndex() *procIndex {
 	idx := &procIndex{
 		children: map[int][]int{},
@@ -62,7 +62,7 @@ func loadProcIndex() *procIndex {
 		if err1 != nil || err2 != nil {
 			continue
 		}
-		// comm may contain spaces on some ps — join rest
+		// comm may contain spaces on some ps - join rest
 		name := strings.ToLower(filepath.Base(strings.Join(fields[2:], " ")))
 		// strip macOS "-zsh" style
 		name = strings.TrimPrefix(name, "-")
@@ -72,7 +72,7 @@ func loadProcIndex() *procIndex {
 	return idx
 }
 
-// detectPaneCmd: non-shell current → non-shell start → tool in process tree.
+// detectPaneCmd: non-shell current -> non-shell start -> tool in process tree.
 // Returns binary base name only (e.g. "nvim").
 func detectPaneCmd(currentCmd, startCmd string, pid int32, procs *procIndex) string {
 	if base := binBase(currentCmd); base != "" && !shellNames[base] {
@@ -87,8 +87,8 @@ func detectPaneCmd(currentCmd, startCmd string, pid int32, procs *procIndex) str
 	return procs.findTool(int(pid), 4)
 }
 
-// ToolIntent: pane role tool (nvim, yazi, …). Empty = default shell.
-// Not project essence — workflow intent attached to a pane slot.
+// ToolIntent: pane role tool (nvim, yazi, ...). Empty = default shell.
+// Not project essence - workflow intent attached to a pane slot.
 func ToolIntent(cmd string) string {
 	base := binBase(cmd)
 	if base == "" || shellNames[base] {

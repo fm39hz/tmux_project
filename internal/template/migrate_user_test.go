@@ -48,7 +48,7 @@ func TestMigrateUserSetup(t *testing.T) {
 		// re-learn forks from pure shape as preset-like
 		// ObserveForks expects instance-ish; pass pure with empty cwd
 		ObserveForks(st, pure)
-		fmt.Printf("migrated %s → %s\n", id, ShapeLabel(pure))
+		fmt.Printf("migrated %s -> %s\n", id, ShapeLabel(pure))
 	}
 	// sticky pointer may still be valid id
 	if sid := st.StickyID(); sid != "" {

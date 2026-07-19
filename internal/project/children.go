@@ -21,7 +21,7 @@ var skipDir = map[string]bool{
 	"coverage": true, ".next": true, ".turbo": true,
 }
 
-// Children returns stable-ordered project-like subdirs of root for placement slots C0,C1,…
+// Children returns stable-ordered project-like subdirs of root for placement slots C0,C1,...
 // Order: gitmodules paths first (file order), then other nested projects by path.
 // Empty if root missing or flat.
 func Children(root string) []string {

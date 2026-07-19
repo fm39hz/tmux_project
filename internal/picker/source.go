@@ -9,7 +9,7 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// Source IDs — stable keys for bySrc slots and future remote hosts.
+// Source IDs - stable keys for bySrc slots and future remote hosts.
 const (
 	SrcCreate = "create"
 	SrcTmux   = "tmux"
@@ -22,7 +22,7 @@ const (
 type Source interface {
 	ID() string
 	Snapshot() []Item
-	// Refresh: Cmd → sourceMsg; nil means Snapshot is already complete.
+	// Refresh: Cmd -> sourceMsg; nil means Snapshot is already complete.
 	Refresh() tea.Cmd
 }
 
@@ -56,7 +56,7 @@ func (s *createSource) Snapshot() []Item {
 	if s.name == "" {
 		return nil
 	}
-	// Inside tmux: no Create — cwd spin-up is for outside; jump via zoxide/active.
+	// Inside tmux: no Create - cwd spin-up is for outside; jump via zoxide/active.
 	if s.ctl != nil && s.ctl.CurrentSession() != "" {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (s *tmuxSource) Snapshot() []Item {
 	}
 	out := make([]Item, 0, len(live))
 	for _, ls := range live {
-		// Recency: max(last_attached, activity, created) — "just left" / hot session
+		// Recency: max(last_attached, activity, created) - "just left" / hot session
 		rec := ls.LastAttached
 		if ls.Activity > rec {
 			rec = ls.Activity

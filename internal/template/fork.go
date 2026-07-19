@@ -11,13 +11,13 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// Fork = one window essence unit (reusable mảnh).
+// Fork = one window essence unit (reusable unit).
 // Learned silently when user freezes or sticks after working with sticky.
 // Same/different from sticky windows both count as signal: hits rise on match,
 // new keys appear on divergence (fork of habit).
 
 // WindowForkKey fingerprints one window: pane count + split class + tools.
-// Labels/cwd ignored — "first pane nvim" is one key everywhere.
+// Labels/cwd ignored - "first pane nvim" is one key everywhere.
 func WindowForkKey(w store.PresetWindow) string {
 	n := len(w.Panes)
 	if n == 0 {

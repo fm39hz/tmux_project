@@ -189,7 +189,7 @@ func BenchmarkTmuxpLoadDetached(b *testing.B) {
 		b.StartTimer()
 		// tmuxp load uses config name; use file path
 		cmd := exec.Command("tmuxp", "load", "-d", "-y", file)
-		// force session name? tmuxp uses name inside json — kill whatever
+		// force session name? tmuxp uses name inside json - kill whatever
 		if out, err := cmd.CombinedOutput(); err != nil {
 			b.Fatalf("%v %s", err, out)
 		}
