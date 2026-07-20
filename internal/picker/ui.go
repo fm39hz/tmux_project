@@ -547,9 +547,16 @@ func (m model) View() string {
 		b.WriteByte('\n')
 		shown = 1
 	} else {
-		start := 0
-		if m.cursor >= maxShow {
-			start = m.cursor - maxShow + 1
+		half := maxShow / 2
+		start := m.cursor - half
+		if start < 0 {
+			start = 0
+		}
+		if start+maxShow > len(m.view) {
+			start = len(m.view) - maxShow
+		}
+		if start < 0 {
+			start = 0
 		}
 		end := start + maxShow
 		if end > len(m.view) {
