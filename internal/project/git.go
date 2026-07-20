@@ -6,10 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing/format/config"
 )
 
 // GitSubmodule is one .gitmodules entry.
@@ -18,20 +14,11 @@ type GitSubmodule struct {
 	URL  string
 }
 
-// ListSubmodules reads submodule path/url via go-git config decoder when possible,
-// with a small line parser fallback. No git binary required.
+// ListSubmodules reads .gitmodules entries via a simple line parser.
 func ListSubmodules(root string) []GitSubmodule {
 	root = filepath.Clean(root)
 	if root == "" {
 		return nil
-	}
-	// Warm go-git open (validates repo / worktree .git); submodule data from file.
-	_, _ = git.PlainOpenWithOptions(root, &git.PlainOpenOptions{
-		DetectDotGit: true,
-	})
-
-	if sms := listSubmodulesGoGit(root); len(sms) > 0 {
-		return sms
 	}
 	return listSubmodulesFallback(root)
 }
@@ -50,40 +37,6 @@ func SharedSubmoduleURLs(root string) map[string][]string {
 		byURL[u] = paths
 	}
 	return byURL
-}
-
-func listSubmodulesGoGit(root string) []GitSubmodule {
-	fs := osfs.New(root)
-	f, err := fs.Open(".gitmodules")
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	cfg := config.New()
-	if err := config.NewDecoder(f).Decode(cfg); err != nil {
-		return nil
-	}
-	var out []GitSubmodule
-	for _, sec := range cfg.Sections {
-		if sec.Name != "submodule" {
-			continue
-		}
-		for _, sub := range sec.Subsections {
-			sm := GitSubmodule{}
-			for _, o := range sub.Options {
-				switch strings.ToLower(o.Key) {
-				case "path":
-					sm.Path = filepath.Clean(o.Value)
-				case "url":
-					sm.URL = strings.TrimSpace(o.Value)
-				}
-			}
-			if sm.Path != "" && sm.Path != "." {
-				out = append(out, sm)
-			}
-		}
-	}
-	return out
 }
 
 // listSubmodulesFallback: line parser (always works on plain .gitmodules).
@@ -130,10 +83,8 @@ func listSubmodulesFallback(root string) []GitSubmodule {
 	return out
 }
 
-// IsGitRepo reports whether root is a git work tree / repo (go-git).
+// IsGitRepo reports whether root is a git work tree or linked worktree.
 func IsGitRepo(root string) bool {
-	_, err := git.PlainOpenWithOptions(filepath.Clean(root), &git.PlainOpenOptions{
-		DetectDotGit: true,
-	})
+	_, err := os.Stat(filepath.Join(filepath.Clean(root), ".git"))
 	return err == nil
 }
