@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/junegunn/fzf/src/algo"
 
 	"github.com/fm39hz/gotomux/internal/picker"
@@ -20,7 +19,7 @@ import (
 var version = "dev"
 
 // errCancel is user cancel (Esc / Ctrl+C in picker). Exit 0 - not a failure.
-var errCancel = errors.New("canceled")
+var errCancel = picker.ErrCancel
 
 func init() { algo.Init("default") }
 
@@ -101,36 +100,9 @@ func runPicker() error {
 	root := project.FindProjectRoot(cwd)
 	name := project.SessionName(root)
 
-	m := picker.NewModel(ctl, st, name, root)
-	opts, alt, err := picker.TeaOpts()
-	if err != nil {
-		return err
-	}
-
-	p := tea.NewProgram(m, opts...)
-	final, runErr := picker.RunCancellable(p)
-	if runErr != nil {
-		return runErr
-	}
-
-	if fm, ok := final.(interface {
-		Done() picker.Result
-		FrameLines() int
-	}); ok {
-		if !alt {
-			picker.ClearInline(fm.FrameLines())
-		}
-		res := fm.Done()
-		switch res.Action {
-		case picker.ActionConnect:
-			// --- phase: connect - SIGINT default (user may kill stuck attach) ---
-			return connectItem(ctl, st, res.Item)
-		default:
-			// ActionQuit / ActionNone = user cancel
-			return errCancel
-		}
-	}
-	return errCancel
+	return picker.RunPicker(ctl, st, name, root, func(it picker.Item) error {
+		return connectItem(ctl, st, it)
+	})
 }
 
 func connectItem(ctl *tmux.Ctl, st *store.Store, it picker.Item) error {

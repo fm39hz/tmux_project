@@ -50,7 +50,6 @@ func InvalidateCaches() {
 
 // defaultSources order = dedup priority (first wins name/path).
 func defaultSources(ctl *tmux.Ctl, st *store.Store, createName, createCwd string) []Source {
-	// tmux snapshot: reuse cached unless invalidated
 	if !tmuxSnapshotOK {
 		tmuxSnapshot = nil
 		tmuxSnapshotOK = true
@@ -60,18 +59,10 @@ func defaultSources(ctl *tmux.Ctl, st *store.Store, createName, createCwd string
 			}
 		}
 	}
-	// preset cache: reuse unless invalidated
-	if !presetCacheOK && st != nil {
-		presetCache = nil
-		presetCacheOK = true
-		if meta, err := st.ListMeta(); err == nil {
-			presetCache = meta
-		}
-	}
 	return []Source{
 		&createSource{ctl: ctl, name: createName, cwd: createCwd, live: tmuxSnapshot},
 		&tmuxSource{live: tmuxSnapshot},
-		&presetSource{store: st, cached: presetCache},
+		&presetSource{store: st},
 		&zoxideSource{},
 	}
 }
@@ -152,20 +143,23 @@ func (s *tmuxSource) Refresh() tea.Cmd { return nil }
 // --- presets ---
 
 type presetSource struct {
-	store  *store.Store
-	cached []store.PresetMeta
+	store *store.Store
 }
 
 func (s *presetSource) ID() string { return SrcPreset }
 
 func (s *presetSource) Snapshot() []Item {
-	meta := s.cached
-	if meta == nil && s.store != nil {
+	var meta []store.PresetMeta
+	if presetCacheOK {
+		meta = presetCache
+	} else if s.store != nil {
 		var err error
 		meta, err = s.store.ListMeta()
 		if err != nil {
 			return nil
 		}
+		presetCache = meta
+		presetCacheOK = true
 	}
 	out := make([]Item, 0, len(meta))
 	for _, m := range meta {
