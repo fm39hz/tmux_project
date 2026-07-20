@@ -281,11 +281,15 @@ func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]in
 		}
 		applyCooccur(items, pairs)
 		if ctxSession != "" && id == SrcTmux {
-			for i := range items {
-				if items[i].Name == ctxSession && items[i].Kind == KindActive {
-					items[i].Recency = 0
+			n := 0
+			for _, it := range items {
+				if it.Kind == KindActive && it.Name == ctxSession {
+					continue
 				}
+				items[n] = it
+				n++
 			}
+			items = items[:n]
 		}
 		bySrc[id] = items
 	}

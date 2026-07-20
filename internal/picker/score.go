@@ -24,7 +24,8 @@ var fzfSlab = util.MakeSlab(128*1024, 64*1024)
 //	idx     - stable input order.
 //
 // Idle (empty q): tier=0; sort kind -> recency (tmux last_attached/activity, usage max) -> cooccur -> pathQ -> idx.
-// Inside tmux, current session recency is demoted so "just left" surfaces first.
+// Inside tmux, the current session is excluded from the active list (you're already there).
+// Remaining items sort by recency — "just left" surfaces first.
 //
 // Frecency (usage table): opens with day-decay minus kill penalty - see frecencyScore.
 //

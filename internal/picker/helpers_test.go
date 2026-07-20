@@ -391,31 +391,28 @@ func TestPairCanonical(t *testing.T) {
 	}
 }
 
-func TestIdleMRUAndDemoteCurrent(t *testing.T) {
-	// empty query: higher Recency among Active wins; demote zeros current
+func TestIdleMRUAndFilterCurrent(t *testing.T) {
+	// empty query: higher Recency among Active wins.
+	// Inside tmux, the current session is filtered out (you're already there).
 	cur := Item{Kind: KindActive, Name: "here", Recency: 1000}
 	left := Item{Kind: KindActive, Name: "left", Recency: 900}
 	old := Item{Kind: KindActive, Name: "old", Recency: 100}
-	// without demote, cur first
+	// pre-filter: cur first by recency
 	got := rankItems("", []Item{old, cur, left})
 	if got[0].Name != "here" {
-		t.Fatalf("pre-demote want here first, got %s", got[0].Name)
+		t.Fatalf("pre-filter want here first, got %s", got[0].Name)
 	}
 	by := map[string][]Item{SrcTmux: {old, cur, left}}
 	applyRankMeta(by, nil, nil, "here")
-	// current recency wiped
+	// current session removed
 	for _, it := range by[SrcTmux] {
-		if it.Name == "here" && it.Recency != 0 {
-			t.Fatalf("current should be demoted to 0, got %d", it.Recency)
+		if it.Name == "here" {
+			t.Fatal("current session should be filtered out")
 		}
 	}
 	got = rankItems("", by[SrcTmux])
-	if got[0].Name != "left" {
-		t.Fatalf("after demote current, want left (just-left MRU), got %v", namesOf(got))
-	}
-	// current still in list (kind Active), just last among actives by recency
-	if got[len(got)-1].Name != "here" {
-		t.Fatalf("current should be last by recency, got %v", namesOf(got))
+	if len(got) != 2 || got[0].Name != "left" {
+		t.Fatalf("after filter current, want left first (just-left MRU), got %v", namesOf(got))
 	}
 }
 

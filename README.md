@@ -161,6 +161,8 @@ Shell Ctrl+B and tmux prefix+C-b are separate: outside tmux the shell bind runs;
 | **Preset**          | load if missing, then attach                                                  |
 | **Create / Zoxide** | live? attach : same-name preset? load : bake **sticky shape** at project root |
 
+If connect fails (tmux error, broken preset,...), the picker re-opens with the error message in the status line.
+
 ### Shapes (sticky)
 
 A **shape** is cockpit essence, not a project dump:
@@ -195,8 +197,8 @@ Shape JSON sketch:
 
 ## Ranking
 
-Lexicographic, not a single magic score: match tier > kind > detail > recency (tmux + usage) > co-occurrence > shallower path.
-Inside tmux, current session is demoted so "just left" surfaces first.
+Tiered tuple sort: match tier > kind > detail > recency (tmux + usage) > co-occurrence > shallower path.
+Inside tmux, the current session is excluded from the active list (you're already there). Remaining items sort by recency, most of the time "just left" will surfaces first.
 
 ## Env
 
