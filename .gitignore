@@ -16,9 +16,12 @@
 # documentation
 docs/
 
-# arch packaging artifacts (keep PKGBUILD)
+# arch packaging artifacts
+/pkg/
+/src/
 dist/pkg/
 dist/src/
 dist/srcpkg/
 dist/*.pkg.tar.*
 dist/*.log
+*.pkg.tar.*

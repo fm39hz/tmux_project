@@ -1,0 +1,76 @@
+.TH GOTOMUX 1 "2025" "gotomux" "User Commands"
+.SH NAME
+gotomux \- fuzzy tmux session picker
+.SH SYNOPSIS
+.B gotomux
+[\fB\-f\fR [\fIname\fR]]
+[\fB\-e\fR [\fIname\fR]]
+.SH DESCRIPTION
+.B gotomux
+is a fuzzy tmux session picker.
+It presents live sessions, saved presets, and zoxide paths in a
+filterable TUI.
+Press Enter to connect, or use keybindings to kill, freeze, edit, and delete.
+.SH OPTIONS
+.TP
+.B \-f [\fIname\fR]
+Freeze a session into a preset.
+If
+.I name
+is omitted, freezes the current tmux session, or prompts to pick one.
+.TP
+.B \-e [\fIname\fR]
+Edit a preset in $EDITOR.
+If
+.I name
+is omitted, opens an interactive picker.
+.TP
+.B \-h
+Show help text.
+.SH KEYBINDINGS
+.TP
+.B type
+Filter (fzf-style matching, Vietnamese diacritics folded).
+.TP
+.B Enter
+Connect.
+.TP
+.B Ctrl-n / Ctrl-p
+Next / previous.
+.TP
+.B Ctrl-u / Ctrl-w
+Clear query / delete word.
+.TP
+.B Ctrl-x
+Kill active session.
+.TP
+.B Ctrl-f
+Freeze selection into preset + shape.
+.TP
+.B Ctrl-t
+Set sticky shape.
+.TP
+.B Ctrl-e / Ctrl-d
+Edit / delete preset.
+.TP
+.B Esc / Ctrl-c
+Cancel.
+.TP
+.B ?
+Toggle help.
+.SH ENVIRONMENT
+.TP
+.B TMUX
+When set, the picker uses an alt-screen popup and hides the current session
+from the active list.
+.SH FILES
+.TP
+.I $XDG_DATA_HOME/gotomux/state.db
+SQLite store (presets, shapes, usage, placement).
+.TP
+.I $XDG_CONFIG_HOME/gotomux/shapes/<label>\-\-<id>.json
+Shape backups.
+.SH SEE ALSO
+tmux(1), zoxide(1)
+.SH AUTHORS
+fm39hz <fm39hz@gmail.com>

@@ -33,10 +33,11 @@ fmt: ## gofmt
 vet: ## go vet
 	go vet ./...
 
-pkg: ## build Arch package in dist/ (makepkg)
-	cd dist && makepkg -f --cleanbuild --skipinteg
+pkg: ## build Arch package (artifacts to dist/)
+	mkdir -p dist
+	PKGDEST=$(CURDIR)/dist makepkg -f -c --cleanbuild --skipinteg
 	@ls -1h dist/gotomux-*.pkg.tar.zst 2>/dev/null || true
 
-pkg-install: ## makepkg -si local package (needs sudo/pacman)
-	cd dist && makepkg -si --noconfirm --cleanbuild --skipinteg
+pkg-install: ## makepkg -si (prompts for sudo via pacman)
+	PKGDEST=$(CURDIR)/dist makepkg -si --noconfirm -c --cleanbuild --skipinteg
 
