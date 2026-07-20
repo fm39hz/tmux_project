@@ -6,8 +6,12 @@ import (
 	"unicode"
 
 	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/junegunn/fzf/src/algo"
+	"github.com/junegunn/fzf/src/util"
 	"golang.org/x/text/unicode/norm"
 )
+
+var fzfSlab = util.MakeSlab(128*1024, 64*1024)
 
 // Ranking: lexicographic rankKey (not a single ad-hoc sum).
 //
@@ -49,13 +53,8 @@ const (
 const (
 	detailBase      int32 = 1_000_000
 	detailDensity   int32 = 10_000
-	detailPosUnit   int32 = 100
-	detailLenUnit   int32 = 1
 	detailFullExact int32 = 5_000
 	detailSegExact  int32 = 2_000
-	detailFuzzyRun  int32 = 50
-	detailFuzzyHit  int32 = 10
-	detailFuzzyBnd  int32 = 20
 )
 
 type rankKey struct {
@@ -283,16 +282,17 @@ func matchOnLabel(q, label string) (fieldHit, bool) {
 			ok = true
 			return
 		}
-		if strings.HasPrefix(text, q) {
-			rest := len(text) - len(q)
-			d := detailBase + densityDetail(q, text) - int32(rest)*detailLenUnit
-			best = betterHit(best, fieldHit{tierPrefix, d})
+
+		chars := util.ToChars([]byte(text))
+		qr := []rune(q)
+
+		if result, _ := algo.PrefixMatch(false, false, true, &chars, qr, false, fzfSlab); result.Start >= 0 {
+			best = betterHit(best, fieldHit{tierPrefix, int32(result.Score)})
 			ok = true
 			return
 		}
-		if i := strings.Index(text, q); i >= 0 {
-			d := detailBase + densityDetail(q, text) - int32(i)*detailPosUnit - int32(len(text))*detailLenUnit
-			best = betterHit(best, fieldHit{tierSubstr, d})
+		if result, _ := algo.ExactMatchNaive(false, false, true, &chars, qr, false, fzfSlab); result.Start >= 0 {
+			best = betterHit(best, fieldHit{tierSubstr, int32(result.Score)})
 			ok = true
 			return
 		}
@@ -330,55 +330,26 @@ func matchOnPath(q, path string) (fieldHit, bool) {
 }
 
 func fuzzyDetail(query, text string) (int32, bool) {
-	qr, tr := []rune(query), []rune(text)
+	if query == "" {
+		return detailBase, true
+	}
+	qr := []rune(query)
 	if len(qr) == 0 {
 		return detailBase, true
 	}
+	tr := []rune(text)
 	if len(qr) > len(tr) {
 		return 0, false
 	}
-	ti := 0
-	var score int32
-	prev := -2
-	first := -1
-	for _, ch := range qr {
-		found := false
-		for ; ti < len(tr); ti++ {
-			if tr[ti] != ch {
-				continue
-			}
-			if first < 0 {
-				first = ti
-			}
-			if ti == prev+1 {
-				score += detailFuzzyRun
-			} else {
-				score += detailFuzzyHit
-				if prev >= 0 {
-					score -= int32(ti - prev - 1)
-				}
-			}
-			if ti == 0 || isBoundary(tr[ti-1]) {
-				score += detailFuzzyBnd
-			}
-			prev = ti
-			ti++
-			found = true
-			break
-		}
-		if !found {
-			return 0, false
-		}
-	}
-	score += detailBase/100 - int32(first)*2 - int32(len(tr))
-	if score < 0 {
-		score = 0
-	}
-	return score, true
-}
 
-func isBoundary(r rune) bool {
-	return r == '/' || r == '-' || r == '_' || r == '.' || r == ' ' || unicode.IsSpace(r)
+	chars := util.ToChars([]byte(text))
+	result, _ := algo.FuzzyMatchV2(
+		false, false, true, &chars, qr, false, fzfSlab,
+	)
+	if result.Score <= 0 {
+		return 0, false
+	}
+	return int32(result.Score), true
 }
 
 // bestHit for a single token against name / basename / path.

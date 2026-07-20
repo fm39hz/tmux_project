@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/junegunn/fzf/src/algo"
 
 	"github.com/fm39hz/gotomux/internal/picker"
 	"github.com/fm39hz/gotomux/internal/project"
@@ -20,6 +21,8 @@ var version = "dev"
 
 // errCancel is user cancel (Esc / Ctrl+C in picker). Exit 0 - not a failure.
 var errCancel = errors.New("canceled")
+
+func init() { algo.Init("default") }
 
 func main() {
 	err := dispatch()

@@ -227,7 +227,7 @@ make help && make test
 ## Acknowledgements
 
 - [tmux](https://github.com/tmux/tmux), [zoxide](https://github.com/ajeetdsouza/zoxide)
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea), [gotmux](https://github.com/GianlucaP106/gotmux), [modernc sqlite](https://gitlab.com/cznic/sqlite)
+- [Bubble Tea](https://github.com/charmbracelet/bubbletea), [fzf](https://github.com/junegunn/fzf), [gotmux](https://github.com/GianlucaP106/gotmux), [modernc sqlite](https://gitlab.com/cznic/sqlite)
 - [go-git](https://github.com/go-git/go-git), [gopsutil](https://github.com/shirou/gopsutil), [projectdetect](https://github.com/richardwooding/projectdetect), [go-devicons](https://github.com/epilande/go-devicons)
 
 ## License

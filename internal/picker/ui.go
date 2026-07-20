@@ -48,8 +48,10 @@ type model struct {
 	started  time.Time // swallow Alt-release ESC right after open (display-popup)
 	ctx      string    // current tmux session (co-occurrence context)
 	pairs    map[string]int64
-	editPath string // temp file while $EDITOR open
-	editOld  string // preset name before edit (rename detect)
+	editPath   string // temp file while $EDITOR open
+	editOld    string // preset name before edit (rename detect)
+	createName string
+	createCwd  string
 }
 
 var (
@@ -95,15 +97,17 @@ func NewModel(ctl *tmux.Ctl, store *store.Store, createName, createCwd string) m
 	}
 	applyRankMeta(bySrc, store, pairs, ctx)
 	m := model{
-		sources: srcs,
-		bySrc:   bySrc,
-		ctl:     ctl,
-		store:   store,
-		maxShow: 12,
-		tmpl:    template.StickyLabel(store),
-		started: time.Now(),
-		ctx:     ctx,
-		pairs:   pairs,
+		sources:    srcs,
+		bySrc:      bySrc,
+		ctl:        ctl,
+		store:      store,
+		maxShow:    12,
+		tmpl:       template.StickyLabel(store),
+		started:    time.Now(),
+		ctx:        ctx,
+		pairs:      pairs,
+		createName: createName,
+		createCwd:  createCwd,
 	}
 	m.refilter()
 	return m
@@ -402,7 +406,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) reload() {
-	// re-snapshot every source (truth for sync sources; cache for zoxide)
+	m.sources = defaultSources(m.ctl, m.store, m.createName, m.createCwd)
 	m.bySrc = snapshotAll(m.sources)
 	now := time.Now().Unix()
 	if m.ctl != nil {
