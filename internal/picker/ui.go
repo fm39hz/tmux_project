@@ -46,7 +46,8 @@ type model struct {
 	help     bool      // ? toggles full key help
 	tmpl     string    // sticky template name (default|...)
 	started  time.Time // swallow Alt-release ESC right after open (display-popup)
-	ctx      string    // current tmux session (co-occurrence context)
+	ctx      string    // current tmux session name (co-occurrence context)
+	ctxPath  string    // current tmux session path
 	pairs    map[string]int64
 	editPath   string // temp file while $EDITOR open
 	editOld    string // preset name before edit (rename detect)
@@ -87,15 +88,17 @@ func NewModel(ctl *tmux.Ctl, store *store.Store, createName, createCwd string) m
 	srcs := defaultSources(ctl, store, createName, createCwd)
 	bySrc := snapshotAll(srcs)
 	ctx := ""
+	ctxPath := ""
 	if ctl != nil {
 		ctx = ctl.CurrentSession()
+		ctxPath = ctl.CurrentSessionPath()
 	}
 	now := time.Now().Unix()
 	var pairs map[string]int64
 	if store != nil && ctx != "" {
 		pairs, _ = store.PairScores(ctx, now)
 	}
-	applyRankMeta(bySrc, store, pairs, ctx)
+	applyRankMeta(bySrc, store, pairs, ctx, ctxPath)
 	enrichAllSync(bySrc)
 	m := model{
 		sources:    srcs,
@@ -106,6 +109,7 @@ func NewModel(ctl *tmux.Ctl, store *store.Store, createName, createCwd string) m
 		tmpl:       template.StickyLabel(store),
 		started:    time.Now(),
 		ctx:        ctx,
+		ctxPath:    ctxPath,
 		pairs:      pairs,
 		createName: createName,
 		createCwd:  createCwd,
@@ -128,7 +132,7 @@ func (m *model) mergeSource(id string, items []Item) {
 		}
 	}
 	slot := map[string][]Item{id: items}
-	applyRankMeta(slot, m.store, m.pairs, m.ctx)
+	applyRankMeta(slot, m.store, m.pairs, m.ctx, m.ctxPath)
 	m.bySrc[id] = slot[id]
 }
 
@@ -421,13 +425,14 @@ func (m *model) reload() {
 	now := time.Now().Unix()
 	if m.ctl != nil {
 		m.ctx = m.ctl.CurrentSession()
+		m.ctxPath = m.ctl.CurrentSessionPath()
 	}
 	if m.store != nil && m.ctx != "" {
 		m.pairs, _ = m.store.PairScores(m.ctx, now)
 	} else {
 		m.pairs = nil
 	}
-	applyRankMeta(m.bySrc, m.store, m.pairs, m.ctx)
+	applyRankMeta(m.bySrc, m.store, m.pairs, m.ctx, m.ctxPath)
 	enrichAllSync(m.bySrc)
 	m.refilter()
 }

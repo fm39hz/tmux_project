@@ -235,6 +235,17 @@ func (c *Ctl) CurrentSession() string {
 	return strings.TrimSpace(out)
 }
 
+func (c *Ctl) CurrentSessionPath() string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	out, err := tmuxCmd("display-message", "-p", "#{session_path}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
 func (c *Ctl) Kill(name string) error {
 	if name == "" {
 		return fmt.Errorf("kill: empty session name")

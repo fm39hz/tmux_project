@@ -403,7 +403,7 @@ func TestIdleMRUAndFilterCurrent(t *testing.T) {
 		t.Fatalf("pre-filter want here first, got %s", got[0].Name)
 	}
 	by := map[string][]Item{SrcTmux: {old, cur, left}}
-	applyRankMeta(by, nil, nil, "here")
+	applyRankMeta(by, nil, nil, "here", "")
 	// current session removed
 	for _, it := range by[SrcTmux] {
 		if it.Name == "here" {

@@ -2,7 +2,6 @@ package picker
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,10 +83,6 @@ func (s *createSource) ID() string { return SrcCreate }
 
 func (s *createSource) Snapshot() []Item {
 	if s.name == "" {
-		return nil
-	}
-	// Inside tmux: hide Create, user already has a session (switch via active).
-	if os.Getenv("TMUX") != "" {
 		return nil
 	}
 	// Session already exists: hide Create
@@ -274,7 +269,7 @@ func flattenSources(order []Source, bySrc map[string][]Item, query string) []Ite
 }
 
 // applyRankMeta overlays usage + cooccur on all slots.
-func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]int64, ctxSession string) {
+func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]int64, ctxSession, ctxPath string) {
 	now := time.Now().Unix()
 	var us map[string]store.Usage
 	if st != nil {
@@ -288,7 +283,7 @@ func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]in
 		if ctxSession != "" {
 			n := 0
 			for _, it := range items {
-				if it.Name == ctxSession {
+				if it.Name == ctxSession || (ctxPath != "" && it.Path == ctxPath) {
 					continue
 				}
 				items[n] = it

@@ -205,14 +205,14 @@ Sources form a space×time matrix:
 | Present | — | **Active** |
 | Past | — | **Preset** |
 
-Tiered tuple sort: `tier > recency > cooccur > kind > detail > busy > pathQ`.
+Tiered tuple sort: `tier > recency > cooccur > kind > detail > busy > pathQ > idx`.
+Same algorithm everywhere — environment (terminal, tmux, remote) only changes inputs:
 
-- **tier** — query match quality (exact > prefix > substr > fuzzy > path).
-- **recency** — time: future (Create=now) > present (Active) > past (Preset).
-- **cooccur** — space: which sessions pair with current context.
-- **kind** — tiebreaker following the matrix: Create(4) > Active(3) > Preset(2) > Zoxide(1).
+- **ctxSession set** (inside tmux): items matching current session name excluded;
+  cooccur overlay active for remaining items.
+- **No ctxSession** (terminal, remote standalone): all items visible; cooccur = 0.
 
-Inside tmux, any item matching the current session is excluded — remaining items sort naturally, "just left" surfaces via recency, no special case.
+"Just left" surfaces via recency — no special case.
 
 ## Env
 

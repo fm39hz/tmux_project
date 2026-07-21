@@ -25,9 +25,10 @@ var fzfSlab = util.MakeSlab(128*1024, 64*1024)
 //	idx     - stable input order.
 //
 // Idle (empty q): recency > cooccur > kind > detail > busy > pathQ > idx.
-// Inside tmux: any item whose Name matches the current session is excluded
-// (you're already there). Remaining items sort naturally — "just left"
-// surfaces first via recency, no special case needed.
+// When ctxSession is set (inside tmux), any item whose Name matches the
+// current session is excluded (you're already there). Remaining items sort
+// naturally — "just left" surfaces first via recency. Same algorithm
+// regardless of environment; ctxSession only adds filter + cooccur signals.
 //
 // Frecency (usage table): opens with day-decay minus kill penalty - see frecencyScore.
 //
