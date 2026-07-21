@@ -42,7 +42,8 @@ build() {
   cd "${srcdir}/${pkgname}"
   export CGO_ENABLED=0
   export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
-  go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}" .
+  go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}" ./cmd/gotomux/
+  go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}d" ./cmd/gotomuxd/
 }
 
 check() {
@@ -54,7 +55,9 @@ check() {
 package() {
   cd "${srcdir}/${pkgname}"
   install -Dm755 "${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+  install -Dm755 "${pkgname}d" "${pkgdir}/usr/bin/${pkgname}d"
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   install -Dm644 man/gotomux.1 "${pkgdir}/usr/share/man/man1/gotomux.1"
+  install -Dm644 dist/gotomuxd.service "${pkgdir}/usr/lib/systemd/user/gotomuxd.service"
 }

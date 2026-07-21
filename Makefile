@@ -1,16 +1,20 @@
 BIN     := gotomux
+DAEMON  := gotomuxd
 LDFLAGS := -s -w
 
-.PHONY: help build run test test-v bench install clean fmt vet pkg pkg-install
+.PHONY: help build build-all run test test-v bench install install-all clean fmt vet pkg pkg-install
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
 build: ## build ./gotomux
-	go build -ldflags='$(LDFLAGS)' -o $(BIN) .
+	go build -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/gotomux/
 
-run: ## run picker (args: make run ARGS='-h')
-	go run . $(ARGS)
+build-all: build ## build both CLI and daemon
+	go build -ldflags='$(LDFLAGS)' -o $(DAEMON) ./cmd/gotomuxd/
+
+run: ## run picker (args: ARGS='-h')
+	go run ./cmd/gotomux/ $(ARGS)
 
 test: ## unit + integration tests
 	go test ./...
@@ -18,14 +22,21 @@ test: ## unit + integration tests
 test-v: ## tests verbose
 	go test ./... -count=1 -v
 
-bench: ## microbenchmarks (needs tmux for some)
+bench: ## microbenchmarks
 	go test ./internal/picker/ -bench=. -benchmem -run=^$$
 
-install: ## go install to $$(go env GOPATH)/bin
-	go install -ldflags='$(LDFLAGS)' .
+install: ## go install CLI
+	go install -ldflags='$(LDFLAGS)' ./cmd/gotomux/
 
-clean: ## remove local binary
-	rm -f $(BIN)
+install-all: install ## install CLI + daemon + systemd unit
+	go install -ldflags='$(LDFLAGS)' ./cmd/gotomuxd/
+	mkdir -p ~/.config/systemd/user
+	cp dist/gotomuxd.service ~/.config/systemd/user/gotomuxd.service
+	systemctl --user daemon-reload
+	systemctl --user enable --now gotomuxd 2>/dev/null || systemctl --user start gotomuxd
+
+clean: ## remove local binaries
+	rm -f $(BIN) $(DAEMON)
 
 fmt: ## gofmt
 	gofmt -w .
@@ -38,6 +49,5 @@ pkg: ## build Arch package (artifacts to dist/)
 	PKGDEST=$(CURDIR)/dist makepkg -f -c --cleanbuild --skipinteg
 	@ls -1h dist/gotomux-*.pkg.tar.zst 2>/dev/null || true
 
-pkg-install: ## makepkg -si (prompts for sudo via pacman)
+pkg-install: ## makepkg -si
 	PKGDEST=$(CURDIR)/dist makepkg -si --noconfirm -c --cleanbuild --skipinteg
-

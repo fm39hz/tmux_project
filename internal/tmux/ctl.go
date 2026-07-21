@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/fm39hz/gotomux/internal/project"
 	"github.com/fm39hz/gotomux/internal/store"
@@ -554,14 +555,13 @@ func (c *Ctl) Connect(name, cwd string) error {
 		}
 		return nil
 	}
-	cmd := exec.Command("tmux", "attach-session", "-t", name)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("attach %q: %w", name, err)
+	// Swap PID so gotomux doesn't linger as zombie.
+	// Telemetry handled by daemon background poll.
+	tmuxBin, err := exec.LookPath("tmux")
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
 	}
-	return nil
+	return syscall.Exec(tmuxBin, []string{"tmux", "attach-session", "-t", name}, os.Environ())
 }
 
 func (c *Ctl) ConnectPreset(p *store.Preset) error {

@@ -110,6 +110,8 @@ func NewModel(ctl tmux.Connector, store *store.Store, createName, createCwd stri
 	return m
 }
 
+
+
 func (m *model) pool() []Item {
 	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.query))
 }
