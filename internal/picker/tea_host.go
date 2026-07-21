@@ -8,9 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TeaOpts: force /dev/tty so display-popup + default-shell=nu still get a real TTY.
-// Inside tmux ($TMUX set): alt-screen (avoids popup border flash from nvim).
-// Outside tmux: inline (fzf-style). scrollback stays visible.
+// TeaOpts: force /dev/tty so display-popup still gets a real TTY.
+// Inline always (fzf-style) — alt-screen inside tmux causes scrollback artifacts
+// because tmux intercepts terminal escape codes. ClearInline handles cleanup.
 //
 // WithoutSignalHandler: main owns SIGINT for the picker phase only.
 //   - raw TTY: Ctrl+C arrives as KeyMsg -> ActionQuit (cancel)
@@ -20,16 +20,11 @@ func TeaOpts() (opts []tea.ProgramOption, alt bool, err error) {
 	if err != nil {
 		return []tea.ProgramOption{tea.WithoutSignalHandler()}, false, nil
 	}
-	alt = os.Getenv("TMUX") != ""
-	opts = []tea.ProgramOption{
+	return []tea.ProgramOption{
 		tea.WithInput(tty),
 		tea.WithOutput(tty),
 		tea.WithoutSignalHandler(),
-	}
-	if alt {
-		opts = append(opts, tea.WithAltScreen())
-	}
-	return
+	}, false, nil
 }
 
 // truncateRunes cuts s to at most n runes, adding "..." when clipped.
