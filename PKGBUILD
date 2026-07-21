@@ -16,6 +16,7 @@ license=('MIT')
 depends=('tmux')
 optdepends=('zoxide: frequent project paths in the picker')
 makedepends=('go' 'git')
+install=dist/gotomux.install
 options=('!lto' '!debug')
 
 source=()
@@ -33,8 +34,8 @@ pkgver() {
 
 prepare() {
   mkdir -p "${srcdir}/${pkgname}"
-  git -C "${startdir}" archive --format=tar HEAD | tar -x -C "${srcdir}/${pkgname}"
-  git -C "${startdir}" diff HEAD -- . ':!gotomux' ':!dist' ':!src' ':!pkg' |
+  git archive --format=tar HEAD | tar -x -C "${srcdir}/${pkgname}"
+  git diff HEAD -- . ':!gotomux' ':!dist' ':!src' ':!pkg' |
     patch -d "${srcdir}/${pkgname}" -p1 --forward --batch >/dev/null 2>&1 || true
 }
 
@@ -42,7 +43,7 @@ build() {
   cd "${srcdir}/${pkgname}"
   export CGO_ENABLED=0
   export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
-  go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}" ./cmd/gotomux/
+  go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}" .
   go build -ldflags="-s -w -X main.version=${pkgver}" -o "${pkgname}d" ./cmd/gotomuxd/
 }
 

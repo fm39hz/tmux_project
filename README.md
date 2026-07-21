@@ -3,155 +3,161 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/fm39hz/gotomux/ci.yml?branch=master&style=flat-square)](https://github.com/fm39hz/gotomux/actions)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 
-**go to mux** - (yet) another fuzzy [tmux](https://github.com/tmux/tmux) session picker.
+**go to mux**, (yet) another fuzzy tmux session picker with presets, shapes, zoxide.
 
-Forget about tmux and just jump into work: live sessions, saved presets, optional [zoxide](https://github.com/ajeetdsouza/zoxide) paths, and **sticky shapes** (cockpit layout + tools) reapplied on new projects.
+Forget about tmux and just jump into work: live sessions, saved presets, with [zoxide](https://github.com/ajeetdsouza/zoxide) paths, and **sticky shapes** reapplied on new projects.
 
 ## Install
+
+**Arch Linux:**
+
+```bash
+yay -S gotomux                            # or paru, pamac,...
+systemctl --user enable --now gotomuxd    # daemon for instant cold start
+```
+
+**Go (any platform):**
 
 ```bash
 go install github.com/fm39hz/gotomux@latest
 # binary: $(go env GOPATH)/bin/gotomux
+# optional daemon:
+go install github.com/fm39hz/gotomux/cmd/gotomuxd@latest
 ```
 
-From source:
+**From source:**
 
 ```bash
 git clone https://github.com/fm39hz/gotomux.git && cd gotomux
-make install    # or: make build && ./gotomux
-make pkg        # Arch: dist/*.pkg.tar.zst
+make install           # go install CLI
+make install-all       # CLI + daemon + systemd unit + enable
+# or: make build && ./gotomux
+# or: make pkg         # Arch: dist/*.pkg.tar.zst
 ```
 
-**Requires:** `tmux`, `zoxide`
-**Optional:** Nerd Font (TUI icons, or set `GOTOMUX_ASCII=1` to forces plain text)
+**Requires:** `tmux`, `zoxide` (optional)
+**Optional:** Nerd Font (icons, or `GOTOMUX_ASCII=1`)
 
-## CLI
+## Usage
 
 ```bash
-gotomux             # interactive picker
-gotomux -f [name]   # freeze session (arg, else current, else pick)
+gotomux             # interactive picker (auto-detect daemon)
+gotomux -f [name]   # freeze session
 gotomux -e [name]   # edit preset in $EDITOR
 gotomux -h          # show help
 ```
 
+The picker opens instantly. Type to filter, Enter to connect.
+
+### Daemon (`gotomuxd`)
+
+Optional background service for faster cold start and automatic reranking supported telemetry.
+
+```bash
+systemctl --user enable --now gotomuxd
+```
+
+Gotomux auto-detects the daemon on startup. If absent, it will falls back to standalone mode (works identically, slightly slower cold start).
+
 ## Keybind
 
-### picker
+### Picker
 
-| Key                 | Action                                                |
-| ------------------- | ----------------------------------------------------- |
-| type                | filter (diacritics folded)                            |
-| `enter`             | connect                                               |
-| `ctrl-n` / `ctrl-p` | next / prev                                           |
-| `ctrl-u` / `ctrl-w` | clear query / delete word                             |
-| `ctrl-x`            | kill active session                                   |
-| `ctrl-f`            | freeze selection -> preset + shape                    |
-| `ctrl-t`            | sticky shape from selection (create/zox bake with it) |
-| `ctrl-e` / `ctrl-d` | edit / delete preset                                  |
-| `esc` / `ctrl-c`    | cancel (exit 0)                                       |
-| `?`                 | toggle help                                           |
+| Key                 | Action                            |
+| ------------------- | --------------------------------- |
+| type                | filter (diacritics folded)        |
+| `enter`             | connect                           |
+| `ctrl-n` / `ctrl-p` | next / prev                       |
+| `ctrl-u` / `ctrl-w` | clear query / delete word         |
+| `ctrl-x`            | kill active session               |
+| `ctrl-f`            | freeze into preset + shape        |
+| `ctrl-t`            | set sticky shape for new projects |
+| `ctrl-e` / `ctrl-d` | edit / delete preset              |
+| `esc` / `ctrl-c`    | cancel                            |
+| `?`                 | toggle help                       |
 
-### shell (launch picker only)
+### Shell
 
-One action: run `gotomux` (Ctrl+B in the samples; pick another chord if it clashes). Binary on `PATH` (e.g. `$(go env GOPATH)/bin`).
+This is the setup i use for myself, adapt into your own shell config if needed
 
-#### nushell
-
-[`ExecuteHostCommand`](https://www.nushell.sh/book/line_editor.html) runs a command without stuffing the buffer/history. Append to `$env.config.keybindings` (see [line editor](https://www.nushell.sh/book/line_editor.html)):
-
-```nu
+```bash
+# nushell
 $env.config.keybindings ++= [{
   name: launch_gotomux
   modifier: control
   keycode: char_b
   mode: [emacs, vi_normal, vi_insert]
-  event: {
-    send: executehostcommand
-    cmd: "gotomux"
-  }
+  event: { send: executehostcommand, cmd: "gotomux" }
 }]
 ```
 
-If a key does nothing, check with `keybindings listen`.
-
-### tmux
-
-Inside tmux, use a popup so the TUI has a real TTY (needed with many non-bash default shells):
+### Tmux popup
 
 ```tmux
-bind-key C-b display-popup -E -w 80% -h 70% "$HOME/go/bin/gotomux"
-bind-key C-e display-popup -E -w 90% -h 90% "$HOME/go/bin/gotomux -e"
-bind-key -n C-f run-shell "$HOME/go/bin/gotomux -f >/dev/null 2>&1; tmux display-message 'Froze #{session_name}'"
+bind-key C-b display-popup -E -w 80% -h 70% "gotomux"
+bind-key C-e display-popup -E -w 90% -h 90% "gotomux -e"
+bind-key -n C-f run-shell "gotomux -f >/dev/null 2>&1; tmux display-message 'Froze #{session_name}'"
 ```
-
-| Bind                 | Action                                         |
-| -------------------- | ---------------------------------------------- |
-| prefix + `C-b` popup | picker                                         |
-| `C-f`                | freeze current session                         |
-| prefix + `C-e` popup | edit preset (`-e` defaults to current session) |
-
-Shell Ctrl+B and tmux prefix+C-b are separate: outside tmux the shell bind runs; inside tmux the popup bind is usually what you want.
 
 ## Behaviour
 
-| Item                | Enter                                                                         |
-| ------------------- | ----------------------------------------------------------------------------- |
-| **Active**          | attach / switch                                                               |
-| **Preset**          | load if missing, then attach                                                  |
-| **Create / Zoxide** | live? attach : same-name preset? load : bake **sticky shape** at project root |
+| Item                | Enter                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| **Active**          | attach / switch                                                                     |
+| **Preset**          | load if missing, then attach                                                        |
+| **Create / Zoxide** | live? attach : same-name preset? load : unfreeze **sticky shape** into project root |
 
-If connect fails (tmux error, broken preset,...), the picker re-opens with the error message in the status line.
+### Shapes
 
-### Shapes (sticky)
-
-A **shape** is cockpit essence, not a project dump:
-
-- window/pane counts, split class (`even-vertical`, `tiled`,...), tool intent (`nvim`, `yazi`, `opencode`, ...)
-- **not** absolute paths, tmux pixel dumps, or session names
-- human **label** (e.g. `nvim+v2+yazi`) with stable **id** inside the file
-- umbrella layouts learn pane placement (R / C0 / C1 / ...) silently from freeze
-
-Freeze remembers a session **instance** (full cwd/cmd for re-attach) and updates the shape library. Sticky only changes what Create/Zoxide bake.
-
-### Data
-
-| Path                                                  | Contents                                         |
-| ----------------------------------------------------- | ------------------------------------------------ |
-| `$XDG_DATA_HOME/gotomux/state.db`                     | presets, shapes, sticky, placement, forks, usage |
-| `$XDG_CONFIG_HOME/gotomux/shapes/<label>--<id8>.json` | shape backup (auto-reconciled from DB)           |
-
-Shape JSON sketch:
+A **shape** is cockpit essence (no paths, no pixel dumps).
+Freeze saves a full instance, and a shape is derived from it (topology + tools only).
+Sticky shapes are used for new projects via Create/Zoxide.
 
 ```json
 {
   "id": "shape-2942bbbd21e65a14",
   "label": "nvim+v2+yazi",
   "windows": [
-    { "name": "editor", "panes": [{ "cmd": "nvim" }] },
-    { "name": "shell", "split": "even-vertical", "panes": [{}, {}] },
-    { "name": "files", "panes": [{ "cmd": "yazi" }] }
+    { "fork": "1||nvim", "name": "editor", "panes": [{ "cmd": "nvim" }] },
+    {
+      "fork": "2|even-vertical|",
+      "name": "shell",
+      "split": "even-vertical",
+      "panes": [{}, {}]
+    },
+    { "fork": "1||yazi", "name": "files", "panes": [{ "cmd": "yazi" }] }
   ]
 }
 ```
 
+The `fork` string is a window essence fingerprint (`panes|split|tools`).
+Common patterns accumulate hit counts in the DB and can be composed into new shapes automatically.
+
+### Data
+
+| Path                                                  | Contents                       |
+| ----------------------------------------------------- | ------------------------------ |
+| `$XDG_CONFIG_HOME/gotomux/shapes/<label>--<id8>.json` | shape backup (auto-reconciled) |
+| `$XDG_DATA_HOME/gotomux/state.db`                     | presets, shapes, usage, forks  |
+| `$XDG_DATA_HOME/gotomux/gotomuxd.sock`                | daemon IPC (if running)        |
+
 ## Ranking
 
-Sources form a space×time matrix:
+Sources is form into a space × time matrix ranking
 
 |         | Here       | Anywhere   |
 | ------- | ---------- | ---------- |
 | Future  | **Create** | **Zoxide** |
-| Present | -          | **Active** |
-| Past    | -          | **Preset** |
+| Present | —          | **Active** |
+| Past    | —          | **Preset** |
 
-Tiered tuple sort: `tier > recency > cooccur > kind > detail > busy > pathQ > idx`.
-Same algorithm everywhere - environment (terminal, tmux, remote) only changes inputs:
+Sort: `tier > recency > cooccur > kind > detail > busy > pathQ > idx`.
+Same formula everywhere, environment only changes inputs:
 
-- **ctxSession set** (inside tmux): items matching current session name excluded;
-  cooccur overlay active for remaining items.
-- **No ctxSession** (terminal, remote standalone): all items visible; cooccur = 0.
+- **Inside tmux** (`ctxSession` set): items matching the current session name or path are excluded; co-occurrence overlay active.
+- **Outside tmux**: all items visible; co-occurrence = 0.
 
-"Just left" surfaces via recency - no special case.
+"Just left" surfaces via recency.
 
 ## Env
 
@@ -169,9 +175,9 @@ Local first.
 - [x] Freeze / load, sticky shapes, placement + fork learning
 - [x] Shape labels, config reconcile, product JSON (`split` / tools)
 - [x] `go install` / CI / local Arch package
-- [ ] Polish everyday use until boring
+- [x] AUR release
 - [ ] Remote tmux as one pool (`tmux@host`; server: tmux + ssh only)
-- [ ] AUR
+- [ ] Polish everyday use until boring
 
 ## Dev
 
@@ -181,9 +187,14 @@ make help && make test
 
 ## Acknowledgements
 
-- [tmux](https://github.com/tmux/tmux), [zoxide](https://github.com/ajeetdsouza/zoxide)
-- [Bubble Tea](https://github.com/charmbracelet/bubbletea), [fzf](https://github.com/junegunn/fzf), [gotmux](https://github.com/GianlucaP106/gotmux), [modernc sqlite](https://gitlab.com/cznic/sqlite)
-- [gopsutil](https://github.com/shirou/gopsutil), [projectdetect](https://github.com/richardwooding/projectdetect), [go-devicons](https://github.com/epilande/go-devicons)
+[tmux](https://github.com/tmux/tmux): Obviously, what do you expect?
+[zoxide](https://github.com/ajeetdsouza/zoxide): Smart directory jump
+[Bubble Tea](https://github.com/charmbracelet/bubbletea): TUI library
+[fzf](https://github.com/junegunn/fzf): Fuzzy match core engine
+[modernc sqlite](https://gitlab.com/cznic/sqlite): Go version of Sqlite
+[gopsutil](https://github.com/shirou/gopsutil): psutil for Go
+[projectdetect](https://github.com/richardwooding/projectdetect): Detect project type
+[go-devicons](https://github.com/epilande/go-devicons): Nerd font icon
 
 ## License
 

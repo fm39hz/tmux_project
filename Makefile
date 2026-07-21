@@ -8,13 +8,13 @@ help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
 build: ## build ./gotomux
-	go build -ldflags='$(LDFLAGS)' -o $(BIN) ./cmd/gotomux/
+	go build -ldflags='$(LDFLAGS)' -o $(BIN) .
 
 build-all: build ## build both CLI and daemon
 	go build -ldflags='$(LDFLAGS)' -o $(DAEMON) ./cmd/gotomuxd/
 
-run: ## run picker (args: ARGS='-h')
-	go run ./cmd/gotomux/ $(ARGS)
+run: ## run picker (ARGS='-h')
+	go run . $(ARGS)
 
 test: ## unit + integration tests
 	go test ./...
@@ -26,7 +26,7 @@ bench: ## microbenchmarks
 	go test ./internal/picker/ -bench=. -benchmem -run=^$$
 
 install: ## go install CLI
-	go install -ldflags='$(LDFLAGS)' ./cmd/gotomux/
+	go install -ldflags='$(LDFLAGS)' .
 
 install-all: install ## install CLI + daemon + systemd unit
 	go install -ldflags='$(LDFLAGS)' ./cmd/gotomuxd/
