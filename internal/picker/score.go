@@ -13,19 +13,21 @@ import (
 
 var fzfSlab = util.MakeSlab(128*1024, 64*1024)
 
-// Ranking: lexicographic rankKey (not a single ad-hoc sum).
+// Ranking: tiered tuple sort (not a single ad-hoc sum).
 //
-//	tier    - match quality band (lower = better). Kind never outranks a better tier.
-//	kind    - domain preference within tier (higher = better).
-//	detail  - within-tier match quality (higher = better).
+//	tier    - match quality band (lower = better). Nothing outranks tier.
 //	recency - app frecency (opens/kills/time) or fallback preset/zoxide (higher = better).
 //	cooccur - pair score with current session (higher = better); 0 if no context.
+//	kind    - domain preference (higher = better). Tiebreaker within same recency+cooccur.
+//	detail  - within-tier match quality (higher = better).
+//	busy    - 1 if session has a non-shell tool active (higher = better).
 //	pathQ   - shallower path (higher = better): -depth.
 //	idx     - stable input order.
 //
-// Idle (empty q): tier=0; sort kind -> recency (tmux last_attached/activity, usage max) -> cooccur -> pathQ -> idx.
-// Inside tmux, the current session is excluded from the active list (you're already there).
-// Remaining items sort by recency — "just left" surfaces first.
+// Idle (empty q): recency > cooccur > kind > detail > busy > pathQ > idx.
+// Inside tmux: any item whose Name matches the current session is excluded
+// (you're already there). Remaining items sort naturally — "just left"
+// surfaces first via recency, no special case needed.
 //
 // Frecency (usage table): opens with day-decay minus kill penalty - see frecencyScore.
 //
@@ -60,11 +62,11 @@ const (
 
 type rankKey struct {
 	tier    int8
+	recency int64
+	cooccur int64
 	kind    int8
 	detail  int32
 	busy    int8   // 1 if session has non-shell tool active
-	recency int64
-	cooccur int64
 	pathQ   int8
 	idx     int
 }
@@ -72,6 +74,12 @@ type rankKey struct {
 func (a rankKey) less(b rankKey) bool {
 	if a.tier != b.tier {
 		return a.tier < b.tier
+	}
+	if a.recency != b.recency {
+		return a.recency > b.recency
+	}
+	if a.cooccur != b.cooccur {
+		return a.cooccur > b.cooccur
 	}
 	if a.kind != b.kind {
 		return a.kind > b.kind
@@ -81,12 +89,6 @@ func (a rankKey) less(b rankKey) bool {
 	}
 	if a.busy != b.busy {
 		return a.busy > b.busy
-	}
-	if a.recency != b.recency {
-		return a.recency > b.recency
-	}
-	if a.cooccur != b.cooccur {
-		return a.cooccur > b.cooccur
 	}
 	if a.pathQ != b.pathQ {
 		return a.pathQ > b.pathQ

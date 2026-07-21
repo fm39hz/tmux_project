@@ -197,8 +197,22 @@ Shape JSON sketch:
 
 ## Ranking
 
-Tiered tuple sort: match tier > kind > detail > recency (tmux + usage) > co-occurrence > shallower path.
-Inside tmux, the current session is excluded from the active list (you're already there). Remaining items sort by recency, most of the time "just left" will surfaces first.
+Sources form a space×time matrix:
+
+| | Here | Anywhere |
+|---|---|---|
+| Future | **Create** | **Zoxide** |
+| Present | — | **Active** |
+| Past | — | **Preset** |
+
+Tiered tuple sort: `tier > recency > cooccur > kind > detail > busy > pathQ`.
+
+- **tier** — query match quality (exact > prefix > substr > fuzzy > path).
+- **recency** — time: future (Create=now) > present (Active) > past (Preset).
+- **cooccur** — space: which sessions pair with current context.
+- **kind** — tiebreaker following the matrix: Create(4) > Active(3) > Preset(2) > Zoxide(1).
+
+Inside tmux, any item matching the current session is excluded — remaining items sort naturally, "just left" surfaces via recency, no special case.
 
 ## Env
 

@@ -93,12 +93,13 @@ func (s *createSource) Snapshot() []Item {
 		}
 	}
 	return []Item{{
-		Src:   SrcCreate,
-		Kind:  KindCreate,
-		Title: fmt.Sprintf("[Create] %s", s.name),
-		Desc:  s.cwd,
-		Name:  s.name,
-		Path:  s.cwd,
+		Src:     SrcCreate,
+		Kind:    KindCreate,
+		Title:   fmt.Sprintf("[Create] %s", s.name),
+		Desc:    s.cwd,
+		Name:    s.name,
+		Path:    s.cwd,
+		Recency: time.Now().Unix(),
 	}}
 }
 
@@ -280,10 +281,10 @@ func applyRankMeta(bySrc map[string][]Item, st *store.Store, pairs map[string]in
 			applyUsage(items, us, now)
 		}
 		applyCooccur(items, pairs)
-		if ctxSession != "" && id == SrcTmux {
+		if ctxSession != "" {
 			n := 0
 			for _, it := range items {
-				if it.Kind == KindActive && it.Name == ctxSession {
+				if it.Name == ctxSession {
 					continue
 				}
 				items[n] = it
