@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/junegunn/fzf/src/algo"
 
@@ -82,20 +83,47 @@ Edit:   JSON {id,label,windows:[{name,split,panes:[{cmd}]}]}
 // runPicker: interactive phase owns SIGINT -> cancel = errCancel (exit 0).
 // After Enter, SIGINT is released before connect so a stuck attach can be killed.
 func runPicker() error {
-	ctl, err := tmux.New()
-	if err != nil {
-		return fmt.Errorf("tmux: %w", err)
+	var (
+		ctl     tmux.Connector
+		ctlErr  error
+		st      *store.Store
+		stErr   error
+		root    string
+		rootErr error
+	)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		c, err := tmux.New()
+		ctl, ctlErr = c, err
+	}()
+	go func() {
+		defer wg.Done()
+		s, err := store.Open()
+		st, stErr = s, err
+	}()
+	go func() {
+		defer wg.Done()
+		cwd, err := os.Getwd()
+		if err != nil {
+			rootErr = err
+			return
+		}
+		root = project.FindProjectRoot(cwd)
+	}()
+	wg.Wait()
+
+	if ctlErr != nil {
+		return fmt.Errorf("tmux: %w", ctlErr)
 	}
-	st, err := store.Open()
-	if err != nil {
-		return fmt.Errorf("open store: %w", err)
+	if stErr != nil {
+		return fmt.Errorf("open store: %w", stErr)
 	}
 	defer st.Close()
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
+	if rootErr != nil {
+		return rootErr
 	}
-	root := project.FindProjectRoot(cwd)
 	name := project.SessionName(root)
 
 	return picker.RunPicker(ctl, st, name, root, func(it picker.Item) error {

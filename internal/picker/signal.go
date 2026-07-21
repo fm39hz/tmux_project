@@ -58,7 +58,7 @@ func RunPicker(ctl tmux.Connector, st *store.Store, createName, createCwd string
 		m.status = lastErr
 		lastErr = ""
 
-		opts, alt, err := TeaOpts()
+		opts, _, err := TeaOpts()
 		if err != nil {
 			return err
 		}
@@ -77,9 +77,7 @@ func RunPicker(ctl tmux.Connector, st *store.Store, createName, createCwd string
 			return ErrCancel
 		}
 
-		if !alt {
-			ClearInline(fm.FrameLines())
-		}
+		ClearInline(fm.FrameLines())
 
 		res := fm.Done()
 		switch res.Action {

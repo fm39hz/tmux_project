@@ -81,10 +81,6 @@ func InferSplit(layout string, nPanes int) string {
 type Ctl struct{}
 
 func New() (*Ctl, error) {
-	// Verify tmux is reachable
-	if err := exec.Command("tmux", "info").Run(); err != nil {
-		return nil, fmt.Errorf("tmux not reachable: %w", err)
-	}
 	return &Ctl{}, nil
 }
 
