@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/toolclass"
@@ -85,16 +87,16 @@ func New() (*Ctl, error) {
 	return &Ctl{}, nil
 }
 
-func tmuxCmd(args ...string) (string, error) {
-	out, err := exec.Command("tmux", args...).Output()
+func tmuxCmd(ctx context.Context, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, "tmux", args...).Output()
 	if err != nil {
 		return "", fmt.Errorf("tmux %s: %w", strings.Join(args, " "), err)
 	}
 	return strings.TrimSuffix(strings.TrimRight(string(out), "\n"), "\n"), nil
 }
 
-func tmuxRun(args ...string) error {
-	cmd := exec.Command("tmux", args...)
+func tmuxRun(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux %s: %w (%s)", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
@@ -115,8 +117,8 @@ type LiveSession struct {
 	ActiveCmd    string
 }
 
-func (c *Ctl) ListLive() ([]LiveSession, error) {
-	out, _ := exec.Command("tmux",
+func (c *Ctl) ListLive(ctx context.Context) ([]LiveSession, error) {
+	out, _ := exec.CommandContext(ctx, "tmux",
 		"list-sessions", "-F", listSessFmt,
 		";",
 		"list-panes", "-s", "-F", listPanesFmt,
@@ -218,41 +220,41 @@ func parseUnix(s string) int64 {
 	return n
 }
 
-func (c *Ctl) Has(name string) bool {
-	return exec.Command("tmux", "has-session", "-t", name).Run() == nil
+func (c *Ctl) Has(ctx context.Context, name string) bool {
+	return exec.CommandContext(ctx, "tmux", "has-session", "-t", name).Run() == nil
 }
 
-func (c *Ctl) CurrentSession() string {
+func (c *Ctl) CurrentSession(ctx context.Context) string {
 	if os.Getenv("TMUX") == "" {
 		return ""
 	}
-	out, err := tmuxCmd("display-message", "-p", "#S")
+	out, err := tmuxCmd(ctx, "display-message", "-p", "#S")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(out)
 }
 
-func (c *Ctl) CurrentSessionPath() string {
+func (c *Ctl) CurrentSessionPath(ctx context.Context) string {
 	if os.Getenv("TMUX") == "" {
 		return ""
 	}
-	out, err := tmuxCmd("display-message", "-p", "#{session_path}")
+	out, err := tmuxCmd(ctx, "display-message", "-p", "#{session_path}")
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(out)
 }
 
-func (c *Ctl) Kill(name string) error {
+func (c *Ctl) Kill(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("kill: empty session name")
 	}
-	return tmuxRun("kill-session", "-t", name)
+	return tmuxRun(ctx, "kill-session", "-t", name)
 }
 
 // runChain: one tmux client process, commands separated by "\;".
-func (c *Ctl) runChain(parts ...[]string) error {
+func (c *Ctl) runChain(ctx context.Context, parts ...[]string) error {
 	var args []string
 	first := true
 	for _, p := range parts {
@@ -268,7 +270,7 @@ func (c *Ctl) runChain(parts ...[]string) error {
 	if len(args) == 0 {
 		return nil
 	}
-	cmd := exec.Command("tmux", args...)
+	cmd := exec.CommandContext(ctx, "tmux", args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux chain: %w (%s)", err, strings.TrimSpace(string(out)))
 	}
@@ -277,15 +279,15 @@ func (c *Ctl) runChain(parts ...[]string) error {
 
 const freezeFmt = "#{window_index}\t#{window_name}\t#{window_layout}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_start_command}\t#{pane_pid}\t#{pane_active}\t#{session_path}"
 
-func (c *Ctl) Freeze(name string) (*store.Preset, error) {
+func (c *Ctl) Freeze(ctx context.Context, name string) (*model.Session, error) {
 	if !project.ValidSessionName(name) {
 		return nil, fmt.Errorf("invalid session name %q", name)
 	}
-	if !c.Has(name) {
+	if !c.Has(ctx, name) {
 		return nil, fmt.Errorf("session %q not found", name)
 	}
 
-	raw, err := tmuxCmd("list-panes", "-s", "-t", "="+name, "-F", freezeFmt)
+	raw, err := tmuxCmd(ctx, "list-panes", "-s", "-t", "="+name, "-F", freezeFmt)
 	if err != nil {
 		return nil, fmt.Errorf("list-panes: %w", err)
 	}
@@ -385,14 +387,15 @@ func (c *Ctl) Freeze(name string) (*store.Preset, error) {
 	if p.Cwd == "" && len(p.Windows) > 0 {
 		p.Cwd = p.Windows[0].Cwd
 	}
-	return p, nil
+	return store.SessionToModel(p), nil
 }
 
-func (c *Ctl) Load(p *store.Preset) error {
+func (c *Ctl) Load(ctx context.Context, s *model.Session) error {
+	p := store.ModelToSession(s)
 	if !project.ValidSessionName(p.Name) {
 		return fmt.Errorf("invalid session name %q", p.Name)
 	}
-	if c.Has(p.Name) {
+	if c.Has(ctx, p.Name) {
 		return nil
 	}
 
@@ -404,7 +407,7 @@ func (c *Ctl) Load(p *store.Preset) error {
 			return fmt.Errorf("load %q: cwd: %w", p.Name, err)
 		}
 	}
-	base := c.windowBaseIndex()
+	base := c.windowBaseIndex(ctx)
 
 	wins := normalizeWindows(p.Windows, sessCwd)
 	var parts [][]string
@@ -452,15 +455,15 @@ func (c *Ctl) Load(p *store.Preset) error {
 
 	parts = append(parts, []string{"select-window", "-t", windowTarget(p.Name, base)})
 
-	if err := c.runChain(parts...); err != nil {
-		_ = c.Kill(p.Name)
+	if err := c.runChain(ctx, parts...); err != nil {
+		_ = c.Kill(ctx, p.Name)
 		return fmt.Errorf("load %q: %w", p.Name, err)
 	}
 	return nil
 }
 
-func (c *Ctl) windowBaseIndex() int {
-	out, err := tmuxCmd("show-options", "-gv", "base-index")
+func (c *Ctl) windowBaseIndex(ctx context.Context) int {
+	out, err := tmuxCmd(ctx, "show-options", "-gv", "base-index")
 	if err != nil {
 		return 0
 	}
@@ -534,11 +537,11 @@ func cmdArgs(cmd string) []string {
 	return strings.Fields(cmd)
 }
 
-func (c *Ctl) Connect(name, cwd string) error {
+func (c *Ctl) Connect(ctx context.Context, name, cwd string) error {
 	if !project.ValidSessionName(name) {
 		return fmt.Errorf("invalid session name %q", name)
 	}
-	if !c.Has(name) {
+	if !c.Has(ctx, name) {
 		if cwd == "" {
 			var err error
 			cwd, err = os.Getwd()
@@ -546,12 +549,12 @@ func (c *Ctl) Connect(name, cwd string) error {
 				return fmt.Errorf("connect %q: cwd: %w", name, err)
 			}
 		}
-		if err := tmuxRun("new-session", "-d", "-s", name, "-c", cwd); err != nil {
+		if err := tmuxRun(ctx, "new-session", "-d", "-s", name, "-c", cwd); err != nil {
 			return fmt.Errorf("create session %q: %w", name, err)
 		}
 	}
 	if os.Getenv("TMUX") != "" {
-		if err := tmuxRun("switch-client", "-t", name); err != nil {
+		if err := tmuxRun(ctx, "switch-client", "-t", name); err != nil {
 			return fmt.Errorf("switch to %q: %w", name, err)
 		}
 		return nil
@@ -565,12 +568,12 @@ func (c *Ctl) Connect(name, cwd string) error {
 	return syscall.Exec(tmuxBin, []string{"tmux", "attach-session", "-t", name}, os.Environ())
 }
 
-func (c *Ctl) ConnectPreset(p *store.Preset) error {
-	if p == nil {
+func (c *Ctl) ConnectPreset(ctx context.Context, s *model.Session) error {
+	if s == nil {
 		return fmt.Errorf("connect preset: nil")
 	}
-	if err := c.Load(p); err != nil {
-		return fmt.Errorf("load preset %q: %w", p.Name, err)
+	if err := c.Load(ctx, s); err != nil {
+		return fmt.Errorf("load preset %q: %w", s.Name, err)
 	}
-	return c.Connect(p.Name, p.Cwd)
+	return c.Connect(ctx, s.Name, s.Cwd)
 }

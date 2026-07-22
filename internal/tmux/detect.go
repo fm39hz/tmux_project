@@ -3,6 +3,8 @@ package tmux
 import (
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/fm39hz/gotomux/internal/toolclass"
 	"github.com/shirou/gopsutil/v4/process"
@@ -14,14 +16,30 @@ type procIndex struct {
 	comm     map[int32]string
 }
 
+var (
+	procIdxCache    *procIndex
+	procIdxCachedAt time.Time
+	procIdxMu       sync.Mutex
+)
+
 // loadProcIndex: one process table snapshot via gopsutil (no ps/fork).
+// Cached for 2 seconds — pane commands rarely change mid-freeze.
 func loadProcIndex() *procIndex {
+	procIdxMu.Lock()
+	defer procIdxMu.Unlock()
+
+	if procIdxCache != nil && time.Since(procIdxCachedAt) < 2*time.Second {
+		return procIdxCache
+	}
+
 	idx := &procIndex{
 		children: map[int32][]int32{},
 		comm:     map[int32]string{},
 	}
 	procs, err := process.Processes()
 	if err != nil {
+		procIdxCache = idx
+		procIdxCachedAt = time.Now()
 		return idx
 	}
 	for _, p := range procs {
@@ -32,7 +50,6 @@ func loadProcIndex() *procIndex {
 		}
 		name, err := p.Name()
 		if err != nil || name == "" {
-			// try exe basename
 			if exe, e2 := p.Exe(); e2 == nil && exe != "" {
 				name = filepath.Base(exe)
 			}
@@ -42,6 +59,8 @@ func loadProcIndex() *procIndex {
 		idx.comm[pid] = name
 		idx.children[ppid] = append(idx.children[ppid], pid)
 	}
+	procIdxCache = idx
+	procIdxCachedAt = time.Now()
 	return idx
 }
 

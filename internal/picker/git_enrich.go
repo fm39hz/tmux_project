@@ -82,7 +82,9 @@ func readGitBranch(path string) string {
 
 // enrichAllSync fills the git branch cache for all unique paths in bySrc,
 // running go-git opens in parallel goroutines for speed.
-func enrichAllSync(bySrc map[Source][]Item) {
+func enrichAllSync(bySrc map[Source][]Item) { enrichAllSyncWith(bySrc, 4) }
+
+func enrichAllSyncWith(bySrc map[Source][]Item, concurrency int) {
 	seen := map[string]bool{}
 	var paths []string
 	for _, items := range bySrc {
@@ -99,10 +101,16 @@ func enrichAllSync(bySrc map[Source][]Item) {
 		return
 	}
 	var wg sync.WaitGroup
+	if concurrency < 1 {
+		concurrency = 4
+	}
+	sem := make(chan struct{}, concurrency)
 	for _, p := range paths {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(path string) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			readGitBranch(path)
 		}(p)
 	}

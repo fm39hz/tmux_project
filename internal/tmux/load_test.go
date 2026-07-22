@@ -1,13 +1,14 @@
 package tmux
 
 import (
+	"context"
 	"os/exec"
-
-	"github.com/fm39hz/gotomux/internal/store"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/fm39hz/gotomux/internal/store"
 )
 
 // mirrors tmuxp/dotnet-grimoire-net.json:
@@ -23,8 +24,8 @@ func TestLoadGrimoireShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "tp-test-grimoire"
-	_ = ctl.Kill(name)
-	defer func() { _ = ctl.Kill(name) }()
+	_ = ctl.Kill(context.Background(), name)
+	defer func() { _ = ctl.Kill(context.Background(), name) }()
 
 	root := "/tmp/tp-grimoire"
 	testDir := root + "/test"
@@ -51,10 +52,10 @@ func TestLoadGrimoireShape(t *testing.T) {
 			},
 		},
 	}
-	if err := ctl.Load(p); err != nil {
+	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
 		t.Fatal(err)
 	}
-	if !ctl.Has(name) {
+	if !ctl.Has(context.Background(), name) {
 		t.Fatal("session missing")
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -129,8 +130,8 @@ func TestLoadKhoCongShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "tp-test-kho"
-	_ = ctl.Kill(name)
-	defer func() { _ = ctl.Kill(name) }()
+	_ = ctl.Kill(context.Background(), name)
+	defer func() { _ = ctl.Kill(context.Background(), name) }()
 
 	root := "/tmp/tp-kho"
 	a, b := root+"/cong-dlqg", root+"/kho-dl-mo"
@@ -145,7 +146,7 @@ func TestLoadKhoCongShape(t *testing.T) {
 			{Name: "files", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "yazi"}}},
 		},
 	}
-	if err := ctl.Load(p); err != nil {
+	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -219,8 +220,8 @@ func TestLoadWindowNamedLikeSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := "tp-test-ambig-name"
-	_ = ctl.Kill(name)
-	defer func() { _ = ctl.Kill(name) }()
+	_ = ctl.Kill(context.Background(), name)
+	defer func() { _ = ctl.Kill(context.Background(), name) }()
 
 	root := "/tmp/tp-ambig"
 	_ = exec.Command("mkdir", "-p", root).Run()
@@ -234,7 +235,7 @@ func TestLoadWindowNamedLikeSession(t *testing.T) {
 			{Name: "pi", Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
 		},
 	}
-	if err := ctl.Load(p); err != nil {
+	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
 		t.Fatalf("load with window==session name: %v", err)
 	}
 	out, err := exec.Command("tmux", "list-windows", "-t", name, "-F", "#{window_index}:#{window_name}").Output()

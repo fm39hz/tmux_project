@@ -1,22 +1,27 @@
 package daemon
 
 import (
+	"context"
 	"log"
 	"os/exec"
+	"sync/atomic"
 	"time"
 
+	"github.com/fm39hz/gotomux/internal/config"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
 type Daemon struct {
-	cc       *tmux.ControlConn
-	ctl      *tmux.Ctl
-	st       *store.Store
-	lastSeen map[string]int64
+	cc           *tmux.ControlConn
+	ctl          *tmux.Ctl
+	st           *store.Store
+	cfg          *config.Config
+	lastSeen     map[string]int64
+	stateVersion atomic.Int64
 }
 
-func New() (*Daemon, error) {
+func New(cfg *config.Config) (*Daemon, error) {
 	exec.Command("tmux", "start-server").Run()
 	exec.Command("tmux", "set-option", "-g", "exit-empty", "off").Run()
 
@@ -34,7 +39,7 @@ func New() (*Daemon, error) {
 		cc.Close()
 		return nil, err
 	}
-	d := &Daemon{cc: cc, ctl: ctl, st: st, lastSeen: map[string]int64{}}
+	d := &Daemon{cc: cc, ctl: ctl, st: st, cfg: cfg, lastSeen: map[string]int64{}}
 	d.syncNow()
 	go d.pollLoop()
 	return d, nil
@@ -50,7 +55,7 @@ func (d *Daemon) Close() {
 }
 
 func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
-	raw, err := d.cc.Send("list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
+	raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
 	if err != nil {
 		return nil
 	}
@@ -62,9 +67,11 @@ func (d *Daemon) syncNow() {
 	if sessions == nil {
 		return
 	}
+	changed := false
 	for _, s := range sessions {
 		if prev, ok := d.lastSeen[s.Name]; !ok || s.LastAttached > prev {
 			d.recordTelemetry(s.Name, sessions)
+			changed = true
 		}
 		d.lastSeen[s.Name] = s.LastAttached
 	}
@@ -78,7 +85,11 @@ func (d *Daemon) syncNow() {
 		}
 		if !keep {
 			delete(d.lastSeen, name)
+			changed = true
 		}
+	}
+	if changed {
+		d.stateVersion.Add(1)
 	}
 }
 
@@ -100,8 +111,12 @@ func (d *Daemon) recordTelemetry(name string, all []tmux.LiveSession) {
 }
 
 func (d *Daemon) pollLoop() {
+	interval := 10 * time.Second
+	if d.cfg != nil {
+		interval = d.cfg.PollInterval
+	}
 	for {
-		time.Sleep(2 * time.Second)
+		time.Sleep(interval)
 		d.syncNow()
 	}
 }

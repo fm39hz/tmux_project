@@ -6,6 +6,19 @@ import (
 )
 
 // RecordPlacement bumps learned pane-slot pattern for a shape (silent).
+// Prune removes stale placement and fork entries with low confidence.
+// Keeps entries with n >= 2 regardless of age; drops single-use entries older than 30 days.
+// Safe to call periodically — silent, no error returns (best-effort).
+func (s *Store) Prune() {
+	dur := 30 * 24 * time.Hour
+	if s.cfg != nil {
+		dur = s.cfg.PruneCutoff
+	}
+	cutoff := time.Now().Add(-dur).Unix()
+	_, _ = s.db.Exec(`DELETE FROM placement WHERE n < 2 AND last < ?`, cutoff)
+	_, _ = s.db.Exec(`DELETE FROM fork WHERE n < 2 AND last < ?`, cutoff)
+}
+
 func (s *Store) RecordPlacement(shapeID, pattern string) error {
 	shapeID, pattern = strings.TrimSpace(shapeID), strings.TrimSpace(pattern)
 	if shapeID == "" || pattern == "" {

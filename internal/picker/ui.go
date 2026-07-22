@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/fm39hz/gotomux/internal/config"
+	mod "github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/template"
 	"github.com/fm39hz/gotomux/internal/tmux"
@@ -82,8 +85,9 @@ type model struct {
 	sources    []Source
 	bySrc      map[Source][]Item
 	ctl        tmux.Connector
-	store      *store.Store
-	cache      sourceCache
+	store      store.Storer
+	cache      *sourceCache
+	cfg        *config.Config
 	env        Context
 	tmpl       string
 	createName string
@@ -122,54 +126,83 @@ func styleFor(k Kind) lipgloss.Style {
 	}
 }
 
-func NewModelFromDaemon(ctl tmux.Connector, st *store.Store, createName, createCwd string, sessions []tmux.LiveSession, presets []store.PresetMeta, env Context) model {
-	var cache sourceCache
-	cache.zoxSt = st
-	cache.zoxMu = &sync.Mutex{}
-	cache.tmuxSnap = sessions
-	cache.tmuxOK = true
-	cache.presetM = presets
-	cache.presetOK = true
-	srcs := defaultSources(ctl, st, createName, createCwd, &cache)
+func maxShow(cfg *config.Config) int {
+	if cfg != nil && cfg.MaxShow > 0 {
+		return cfg.MaxShow
+	}
+	return 12
+}
+
+func applyUICfg(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if cfg.ZoxideCap > 0 {
+		zoxCap = cfg.ZoxideCap
+	}
+}
+
+func gitConc(cfg *config.Config) int {
+	if cfg != nil && cfg.MaxShow > 0 {
+		return cfg.MaxShow
+	}
+	return 12
+}
+
+func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer, createName, createCwd string, sessions []tmux.LiveSession, presets []store.PresetMeta, env Context) model {
+	cache := &sourceCache{
+		zoxSt:    st,
+		zoxMu:    &sync.Mutex{},
+		tmuxSnap: sessions,
+		presetM:  presets,
+	}
+	cache.tmuxOK.Store(true)
+	cache.presetOK.Store(true)
+	applyUICfg(cfg)
+	srcs := defaultSources(ctl, st, createName, createCwd, cache)
 	bySrc := snapshotAll(srcs)
 	applyRankMeta(bySrc, st, env)
-	enrichAllSync(bySrc)
+	enrichAllSyncWith(bySrc, gitConc(cfg))
 	m := model{
 		sources:    srcs,
 		bySrc:      bySrc,
 		cache:      cache,
 		ctl:        ctl,
 		store:      st,
+		cfg:        cfg,
 		tmpl:       template.StickyLabel(st),
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
-		ui: viewModel{maxShow: 12, started: time.Now()},
+		ui: viewModel{maxShow: maxShow(cfg), started: time.Now()},
 	}
 	m.refilter()
 	return m
 }
 
-func NewModel(ctl tmux.Connector, store *store.Store, createName, createCwd string) model {
-	var cache sourceCache
-	cache.zoxSt = store
-	cache.zoxMu = &sync.Mutex{}
-	srcs := defaultSources(ctl, store, createName, createCwd, &cache)
+func NewModel(cfg *config.Config, ctl tmux.Connector, store store.Storer, createName, createCwd string) model {
+	cache := &sourceCache{
+		zoxSt: store,
+		zoxMu: &sync.Mutex{},
+	}
+	applyUICfg(cfg)
+	srcs := defaultSources(ctl, store, createName, createCwd, cache)
 	bySrc := snapshotAll(srcs)
 	env := newContext(ctl, store)
 	applyRankMeta(bySrc, store, env)
-	enrichAllSync(bySrc)
+	enrichAllSyncWith(bySrc, gitConc(cfg))
 	m := model{
 		sources:    srcs,
 		bySrc:      bySrc,
 		cache:      cache,
 		ctl:        ctl,
 		store:      store,
+		cfg:        cfg,
 		tmpl:       template.StickyLabel(store),
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
-		ui: viewModel{maxShow: 12, started: time.Now()},
+		ui: viewModel{maxShow: maxShow(cfg), started: time.Now()},
 	}
 	m.refilter()
 	return m
@@ -281,7 +314,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case KindPreset:
 					p, err = m.store.Get(it.Name)
 				case KindActive:
-					p, err = m.ctl.Freeze(it.Name)
+					var s *mod.Session
+					s, err = m.ctl.Freeze(context.Background(), it.Name)
+					if err == nil {
+						p = store.ModelToSession(s)
+					}
 				default:
 					if err := template.ResetActive(m.store); err != nil {
 						m.ui.status = err.Error()
@@ -367,7 +404,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				if it.Kind == KindActive {
-					if err := m.ctl.Kill(it.Name); err != nil {
+					if err := m.ctl.Kill(context.Background(), it.Name); err != nil {
 						m.ui.status = err.Error()
 					} else {
 						if m.store != nil {
@@ -385,7 +422,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				name := it.Name
-				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(name)) {
+				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(context.Background(), name)) {
 					stop := HoldInterrupt()
 					sid, created, err := template.FreezeRemember(m.ctl, m.store, name)
 					stop()
@@ -490,11 +527,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) reload() {
 	savedScroll := m.ui.scrollOff()
-	m.sources = defaultSources(m.ctl, m.store, m.createName, m.createCwd, &m.cache)
+	m.sources = defaultSources(m.ctl, m.store, m.createName, m.createCwd, m.cache)
 	m.bySrc = snapshotAll(m.sources)
 	m.env = newContext(m.ctl, m.store)
 	applyRankMeta(m.bySrc, m.store, m.env)
-	enrichAllSync(m.bySrc)
+	enrichAllSyncWith(m.bySrc, gitConc(m.cfg))
 	m.refilter()
 	// Actions (kill/freeze/delete/edit) change list length → preserve scroll.
 	if savedScroll > 0 && savedScroll != m.ui.scrollOff() {
@@ -530,11 +567,7 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := store.DataDir()
-	if err != nil {
-		return nil, err
-	}
-	f, err := os.CreateTemp(dir, "edit-*.json")
+	f, err := os.CreateTemp("", "gotomux-edit-*.json")
 	if err != nil {
 		return nil, err
 	}

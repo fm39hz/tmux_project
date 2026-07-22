@@ -8,18 +8,20 @@ import (
 	"path/filepath"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/fm39hz/gotomux/internal/config"
 )
 
 type Preset struct {
 	Name    string
-	Cwd     string // session root
+	Cwd     string
 	Windows []PresetWindow
 }
 
 type PresetWindow struct {
 	Idx    int
 	Name   string
-	Cwd    string // window working dir (usually first/active pane)
+	Cwd    string
 	Layout string
 	Panes  []PresetPane
 }
@@ -27,31 +29,78 @@ type PresetWindow struct {
 type PresetPane struct {
 	Idx int
 	Cwd string
-	Cmd string // detected tool: nvim, lazygit, ... empty = default shell
+	Cmd string
+}
+
+type Storer interface {
+	Close() error
+	Prune()
+
+	Get(name string) (*Preset, error)
+	Save(p *Preset) error
+	Delete(name string) error
+	ListNames() ([]string, error)
+	ListMeta() ([]PresetMeta, error)
+	Touch(name string) error
+	RebindName(old, newName string) error
+
+	AllUsage() (map[string]Usage, error)
+	RecordOpen(name string) error
+	RecordKill(name string) error
+	RecordPair(a, b string) error
+	RecordPairsWithLive(name string, live []string)
+	PairScores(ctx string, now int64) (map[string]int64, error)
+
+	SaveFreeze(p *Preset, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error)
+	StickShape(shapeID, shapeKey, shapeBody string) (outID string, created bool, err error)
+	RememberShapeOnly(shapeID, shapeKey, shapeBody string) (outID string, created bool, err error)
+	GetShape(id string) (body string, ok bool)
+	GetShapeByKey(key string) (id, body string, ok bool)
+	GetShapeMeta(id string) (body string, updated int64, ok bool)
+	PutShape(id, key, body string) (outID string, created bool, err error)
+	UpsertShapeByID(id, key, body string) error
+	ListShapes() ([]string, error)
+	StickyID() string
+	SetSticky(shapeID string) error
+
+	RecordPlacement(shapeID, pattern string) error
+	BestPlacement(shapeID string) (pattern string, ok bool)
+	RecordFork(key, body string) error
+	ForkHits(key string) int64
+
+	LoadZox() (rows []ZoxRow, updated int64, ok bool)
+	SaveZox(rows []ZoxRow) error
 }
 
 type Store struct {
-	db *sql.DB
+	db  *sql.DB
+	cfg *config.Config
 }
 
-func Open() (*Store, error) {
-	dir, err := DataDir()
-	if err != nil {
-		return nil, err
+func Open() (*Store, error) { return OpenWithConfig(nil) }
+
+func OpenWithConfig(cfg *config.Config) (*Store, error) {
+	var dir string
+	if cfg != nil {
+		dir = cfg.ResolveDataDir()
+	} else {
+		var err error
+		dir, err = DataDir()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	// One-shot: empty gotomux DB + legacy state -> copy presets over.
 	_ = migrateLegacyDB(dir)
 	db, err := sql.Open("sqlite", filepath.Join(dir, "state.db"))
 	if err != nil {
 		return nil, err
 	}
-	// Single writer is enough; keep pool tiny for a short-lived CLI.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	s := &Store{db: db}
+	s := &Store{db: db, cfg: cfg}
 	if err := s.pragma(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -60,6 +109,7 @@ func Open() (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	s.Prune()
 	return s, nil
 }
 

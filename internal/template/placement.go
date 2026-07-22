@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,7 +85,7 @@ func slotOf(root string, children []string, cwd string) string {
 }
 
 // ObservePlacement: best-effort learn non-trivial pattern for shapeID from instance.
-func ObservePlacement(st *store.Store, shapeID string, p *store.Preset) {
+func ObservePlacement(st store.Storer, shapeID string, p *store.Preset) {
 	if st == nil || shapeID == "" || p == nil {
 		return
 	}
@@ -92,13 +93,15 @@ func ObservePlacement(st *store.Store, shapeID string, p *store.Preset) {
 	if pat == "" {
 		return
 	}
-	_ = st.RecordPlacement(shapeID, pat)
+	if err := st.RecordPlacement(shapeID, pat); err != nil {
+		log.Printf("record placement: %v", err)
+	}
 }
 
 // bakeShape materialises shape -> instance: placement slots + inferred split.
 // All inference lives here; Load only runs the resulting preset.
 // st/shapeID optional - without them, all panes = root, even split.
-func bakeShape(st *store.Store, tmpl *store.Preset, name, root, shapeID string) *store.Preset {
+func bakeShape(st store.Storer, tmpl *store.Preset, name, root, shapeID string) *store.Preset {
 	if root == "" {
 		root, _ = os.Getwd()
 	}

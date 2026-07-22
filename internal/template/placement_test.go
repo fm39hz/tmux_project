@@ -69,7 +69,7 @@ func TestObserveAndBakePlacement(t *testing.T) {
 			}},
 		},
 	}
-	sid, _, err := FreezeSave(st, inst, true)
+	sid, _, err := FreezeSave(st, store.SessionToModel(inst), true)
 	if err != nil {
 		t.Fatal(err)
 	}

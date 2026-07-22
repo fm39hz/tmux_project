@@ -43,7 +43,7 @@ type Item struct {
 	GitBranch string
 }
 
-const zoxCap = 40 // empty query: show top-N zoxide only; query uses full pool
+var zoxCap = 40 // default; overridden by Config.ZoxideCap
 
 func normPath(p string) string {
 	if p == "" {

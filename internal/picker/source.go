@@ -1,8 +1,10 @@
 package picker
 
 import (
+	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,35 +33,30 @@ type sourceMsg struct {
 
 type sourceCache struct {
 	tmuxSnap []tmux.LiveSession
-	tmuxOK   bool
+	tmuxOK   atomic.Bool
 	presetM  []store.PresetMeta
-	presetOK bool
+	presetOK atomic.Bool
 	zoxMem   []Item
 	zoxAt    time.Time
 	zoxMu    *sync.Mutex
-	zoxSt    *store.Store
+	zoxSt    store.Storer
 }
 
 func (c *sourceCache) invalidate() {
-	c.tmuxOK = false
-	c.presetOK = false
+	c.tmuxOK.Store(false)
+	c.presetOK.Store(false)
 }
 
-var sessionSnap []tmux.LiveSession
-
-func CachedLiveSessions() []tmux.LiveSession { return sessionSnap }
-
-func defaultSources(ctl tmux.Connector, st *store.Store, createName, createCwd string, cache *sourceCache) []Source {
-	if !cache.tmuxOK {
+func defaultSources(ctl tmux.Connector, st store.Storer, createName, createCwd string, cache *sourceCache) []Source {
+	if !cache.tmuxOK.Load() {
 		cache.tmuxSnap = nil
-		cache.tmuxOK = true
+		cache.tmuxOK.Store(true)
 		if ctl != nil {
-			if live, err := ctl.ListLive(); err == nil && len(live) > 0 {
+			if live, err := ctl.ListLive(context.Background()); err == nil && len(live) > 0 {
 				cache.tmuxSnap = live
 			}
 		}
 	}
-	sessionSnap = cache.tmuxSnap
 	return []Source{
 		&createSource{ctl: ctl, name: createName, cwd: createCwd, live: cache.tmuxSnap},
 		&tmuxSource{live: cache.tmuxSnap},
@@ -132,13 +129,13 @@ func (s *tmuxSource) Refresh() tea.Cmd { return nil }
 func (s *tmuxSource) FlattenFilter(string) FlattenFilter { return FlattenFilter{} }
 
 type presetSource struct {
-	store *store.Store
+	store store.Storer
 	cache *sourceCache
 }
 
 func (s *presetSource) Snapshot() []Item {
 	var meta []store.PresetMeta
-	if s.cache.presetOK {
+	if s.cache.presetOK.Load() {
 		meta = s.cache.presetM
 	} else if s.store != nil {
 		var err error
@@ -147,7 +144,7 @@ func (s *presetSource) Snapshot() []Item {
 			return nil
 		}
 		s.cache.presetM = meta
-		s.cache.presetOK = true
+		s.cache.presetOK.Store(true)
 	}
 	if len(meta) == 0 {
 		return nil
@@ -257,7 +254,7 @@ func flattenSources(order []Source, bySrc map[Source][]Item, query string) []Ite
 	return out
 }
 
-func applyRankMeta(bySrc map[Source][]Item, st *store.Store, ctx Context) {
+func applyRankMeta(bySrc map[Source][]Item, st store.Storer, ctx Context) {
 	var us map[string]store.Usage
 	if len(ctx.Usage) > 0 {
 		us = ctx.Usage

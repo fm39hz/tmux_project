@@ -1,6 +1,7 @@
 package store
 
 import (
+	"log"
 	"strings"
 	"time"
 )
@@ -85,7 +86,9 @@ ON CONFLICT(a, b) DO UPDATE SET
 // RecordPairsWithLive records pairs between name and every other live session.
 func (s *Store) RecordPairsWithLive(name string, live []string) {
 	for _, other := range live {
-		_ = s.RecordPair(name, other)
+		if err := s.RecordPair(name, other); err != nil {
+			log.Printf("record pair: %v", err)
+		}
 	}
 }
 

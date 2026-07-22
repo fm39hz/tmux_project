@@ -5,11 +5,12 @@ import (
 	"log"
 	"os"
 
+	"github.com/fm39hz/gotomux/internal/config"
 	"github.com/fm39hz/gotomux/internal/daemon"
 )
 
 func main() {
-	d, err := daemon.New()
+	d, err := daemon.New(config.Default())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gotomuxd: %v\n", err)
 		os.Exit(1)

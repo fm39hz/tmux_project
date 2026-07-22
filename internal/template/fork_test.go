@@ -46,7 +46,7 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 		},
 	}
 	// two freezes -> hit counts
-	if _, _, err := FreezeSave(st, p, false); err != nil {
+	if _, _, err := FreezeSave(st, store.SessionToModel(p), false); err != nil {
 		t.Fatal(err)
 	}
 	p2 := &store.Preset{
@@ -57,7 +57,7 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 			{Name: "files", Panes: []store.PresetPane{{Cmd: "yazi"}}},
 		},
 	}
-	if _, _, err := FreezeSave(st, p2, true); err != nil {
+	if _, _, err := FreezeSave(st, store.SessionToModel(p2), true); err != nil {
 		t.Fatal(err)
 	}
 

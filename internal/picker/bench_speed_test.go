@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"sync"
@@ -71,7 +72,7 @@ func BenchmarkListLive(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := ctl.ListLive(); err != nil {
+		if _, err := ctl.ListLive(context.Background()); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -84,7 +85,7 @@ func BenchmarkHasSession(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ctl.Has("tmuxproject")
+		_ = ctl.Has(context.Background(), "tmuxproject")
 	}
 }
 
@@ -96,10 +97,10 @@ func BenchmarkConnectExisting(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	_ = ctl.Connect("tmuxproject", "")
+	_ = ctl.Connect(context.Background(), "tmuxproject", "")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := ctl.Connect("tmuxproject", ""); err != nil {
+		if err := ctl.Connect(context.Background(), "tmuxproject", ""); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -128,13 +129,13 @@ func BenchmarkLoadPresetDetached(b *testing.B) {
 		b.StopTimer()
 		p := *src
 		p.Name = "tp-bench-load"
-		_ = ctl.Kill(p.Name)
+		_ = ctl.Kill(context.Background(), p.Name)
 		b.StartTimer()
-		if err := ctl.Load(&p); err != nil {
+		if err := ctl.Load(context.Background(), store.SessionToModel(&p)); err != nil {
 			b.Fatal(err)
 		}
 		b.StopTimer()
-		_ = ctl.Kill(p.Name)
+		_ = ctl.Kill(context.Background(), p.Name)
 	}
 }
 

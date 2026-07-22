@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"os"
@@ -11,13 +12,14 @@ import (
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// Request/Response for IPC — JSON over Unix socket.
 type Request struct {
-	Cmd string `json:"cmd"`
+	Cmd     string `json:"cmd"`
+	Version int64  `json:"version,omitempty"`
 }
 
 type Response struct {
 	OK      bool                `json:"ok"`
+	Version int64               `json:"version,omitempty"`
 	Error   string              `json:"error,omitempty"`
 	Sessions []tmux.LiveSession `json:"sessions,omitempty"`
 	Presets []store.PresetMeta  `json:"presets,omitempty"`
@@ -59,20 +61,16 @@ func (d *Daemon) handleConn(conn net.Conn) {
 		return
 	}
 	if req.Cmd == "list" {
-		d.handleList(conn)
+		resp := d.buildListResponse()
+		resp.Version = d.stateVersion.Load()
+		json.NewEncoder(conn).Encode(resp)
 	}
-	// only "list" command supported
-}
-
-func (d *Daemon) handleList(conn net.Conn) {
-	resp := d.buildListResponse()
-	json.NewEncoder(conn).Encode(resp)
 }
 
 func (d *Daemon) buildListResponse() Response {
 	// Live sessions via tmux -C (0 fork)
 	var sessions []tmux.LiveSession
-	if raw, err := d.cc.Send("list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"); err == nil {
+	if raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"); err == nil {
 		sessions = tmux.ParseLiveOutput(raw)
 	}
 
@@ -82,8 +80,8 @@ func (d *Daemon) buildListResponse() Response {
 		presets, _ = d.st.ListMeta()
 	}
 
-	ctxSess := d.ctl.CurrentSession()
-	ctxPath := d.ctl.CurrentSessionPath()
+	ctxSess := d.ctl.CurrentSession(context.Background())
+	ctxPath := d.ctl.CurrentSessionPath(context.Background())
 
 	var pairs map[string]int64
 	var usage map[string]store.Usage

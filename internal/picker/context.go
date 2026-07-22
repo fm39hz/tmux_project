@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"time"
 
 	"github.com/fm39hz/gotomux/internal/store"
@@ -18,11 +19,11 @@ type Context struct {
 	Now     int64
 }
 
-func newContext(ctl tmux.Connector, st *store.Store) Context {
+func newContext(ctl tmux.Connector, st store.Storer) Context {
 	ctx := Context{Now: time.Now().Unix()}
 	if ctl != nil {
-		ctx.Session = ctl.CurrentSession()
-		ctx.Path = ctl.CurrentSessionPath()
+		ctx.Session = ctl.CurrentSession(context.Background())
+		ctx.Path = ctl.CurrentSessionPath(context.Background())
 	}
 	if st != nil && ctx.Session != "" {
 		ctx.Pairs, _ = st.PairScores(ctx.Session, ctx.Now)

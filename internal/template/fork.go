@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/fm39hz/gotomux/internal/store"
@@ -79,7 +80,7 @@ func WindowForkBody(w store.PresetWindow) string {
 }
 
 // ObserveForks records every window as a fork unit.
-func ObserveForks(st *store.Store, p *store.Preset) {
+func ObserveForks(st store.Storer, p *store.Preset) {
 	if st == nil || p == nil {
 		return
 	}
@@ -89,6 +90,8 @@ func ObserveForks(st *store.Store, p *store.Preset) {
 		if key == "" {
 			continue
 		}
-		_ = st.RecordFork(key, WindowForkBody(w))
+		if err := st.RecordFork(key, WindowForkBody(w)); err != nil {
+			log.Printf("record fork: %v", err)
+		}
 	}
 }

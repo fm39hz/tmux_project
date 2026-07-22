@@ -81,19 +81,3 @@ func IsDetectedProject(dir string) bool {
 	return len(DetectTypes(dir)) > 0
 }
 
-// BuildExcludeNames unions canonical build-artefact basenames for types matching dir.
-func BuildExcludeNames(dir string) map[string]bool {
-	ensureProjectTypes()
-	out := map[string]bool{}
-	// always skip common noise even without type match
-	for k := range skipDir {
-		out[k] = true
-	}
-	// CollectBuildExcludes walks tree; for one dir we use Detect + type BuildExcludes via registry
-	// Simplest: merge Detect types with hard-coded common from matches
-	for _, m := range DetectTypes(dir) {
-		// library doesn't expose BuildExcludes on Match; keep skipDir union sufficient
-		_ = m
-	}
-	return out
-}

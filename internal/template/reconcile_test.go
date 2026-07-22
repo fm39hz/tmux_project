@@ -27,7 +27,7 @@ func TestReconcileConfigShapesRenamesAndPrunes(t *testing.T) {
 			{Panes: []store.PresetPane{{Cmd: "yazi"}}},
 		},
 	}
-	id, _, err := FreezeSave(st, p, true)
+	id, _, err := FreezeSave(st, store.SessionToModel(p), true)
 	if err != nil {
 		t.Fatal(err)
 	}

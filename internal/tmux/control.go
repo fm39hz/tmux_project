@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -36,7 +37,7 @@ func StartControl() (*ControlConn, error) {
 	return &ControlConn{w: w, r: bufio.NewReader(r)}, nil
 }
 
-func (cc *ControlConn) Send(args ...string) (string, error) {
+func (cc *ControlConn) Send(ctx context.Context, args ...string) (string, error) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 
@@ -59,27 +60,44 @@ func (cc *ControlConn) Send(args ...string) (string, error) {
 		return "", fmt.Errorf("tmux -C send: %w", err)
 	}
 
-	var out strings.Builder
-	for {
-		line, err := cc.r.ReadString('\n')
-		if err != nil {
-			return "", fmt.Errorf("tmux -C recv: %w", err)
-		}
-		line = strings.TrimSuffix(line, "\n")
-
-		switch {
-		case strings.HasPrefix(line, "%begin "):
-		case strings.HasPrefix(line, "%end "):
-			return strings.TrimRight(out.String(), "\n"), nil
-		case strings.HasPrefix(line, "%error "):
-			return "", fmt.Errorf("tmux -C: %s", strings.TrimSpace(line[7:]))
-		default:
-			if strings.HasPrefix(line, "%") {
-				continue // async notification, skip
+	type readResult struct {
+		out string
+		err error
+	}
+	resultCh := make(chan readResult, 1)
+	go func() {
+		var out strings.Builder
+		for {
+			line, err := cc.r.ReadString('\n')
+			if err != nil {
+				resultCh <- readResult{"", fmt.Errorf("tmux -C recv: %w", err)}
+				return
 			}
-			out.WriteString(line)
-			out.WriteByte('\n')
+			line = strings.TrimSuffix(line, "\n")
+
+			switch {
+			case strings.HasPrefix(line, "%begin "):
+			case strings.HasPrefix(line, "%end "):
+				resultCh <- readResult{strings.TrimRight(out.String(), "\n"), nil}
+				return
+			case strings.HasPrefix(line, "%error "):
+				resultCh <- readResult{"", fmt.Errorf("tmux -C: %s", strings.TrimSpace(line[7:]))}
+				return
+			default:
+				if strings.HasPrefix(line, "%") {
+					continue
+				}
+				out.WriteString(line)
+				out.WriteByte('\n')
+			}
 		}
+	}()
+
+	select {
+	case r := <-resultCh:
+		return r.out, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
 }
 

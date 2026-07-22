@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func TestStartupBreakdown(t *testing.T) {
 
 	t5 := time.Now()
 	if ctl != nil {
-		live, _ := ctl.ListLive()
+		live, _ := ctl.ListLive(context.Background())
 		t.Logf("ListLive: %v n=%d", time.Since(t5), len(live))
 	}
 
@@ -54,7 +55,7 @@ func TestStartupBreakdown(t *testing.T) {
 	}
 
 	t7 := time.Now()
-	_ = NewModel(ctl, st, name, root)
+	_ = NewModel(nil, ctl, st, name, root)
 	t.Logf("NewModel: %v", time.Since(t7))
 
 	t8 := time.Now()

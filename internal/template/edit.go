@@ -212,7 +212,7 @@ func looksLikeShapeTree(p *store.Preset) bool {
 }
 
 // CommitEdit saves preset and, on rename, deletes old name + rebinds ranking telemetry.
-func CommitEdit(st *store.Store, oldName string, np *store.Preset) error {
+func CommitEdit(st store.Storer, oldName string, np *store.Preset) error {
 	if st == nil || np == nil {
 		return fmt.Errorf("commit edit: nil store or preset")
 	}
@@ -228,7 +228,7 @@ func CommitEdit(st *store.Store, oldName string, np *store.Preset) error {
 
 // Edit opens preset JSON in $EDITOR (or nvim).
 // For tmux binds: use display-popup so the editor has a TTY; -e defaults to current session in main.
-func Edit(st *store.Store, name string, pick func([]string) (string, error)) error {
+func Edit(st store.Storer, name string, pick func([]string) (string, error)) error {
 	var p *store.Preset
 	var err error
 	if name != "" {
@@ -255,11 +255,7 @@ func Edit(st *store.Store, name string, pick func([]string) (string, error)) err
 	}
 
 	oldName := p.Name
-	dir, err := store.DataDir()
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "edit-*.json")
+	tmp, err := os.CreateTemp("", "gotomux-edit-*.json")
 	if err != nil {
 		return err
 	}

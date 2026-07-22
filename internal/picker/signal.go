@@ -1,48 +1,26 @@
 package picker
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/signal"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/fm39hz/gotomux/internal/config"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
-// DrainSignals empties a signal channel so disposition stays clean after Stop.
-func DrainSignals(ch <-chan os.Signal) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
-}
-
-// HoldInterrupt discards SIGINT for a short critical section (freeze/save tx).
-// Call stop() when the section ends - restores default disposition after drain.
+// HoldInterrupt discards SIGINT during critical sections (freeze/save tx).
+// Call stop() when the section ends to restore default SIGINT disposition.
 func HoldInterrupt() (stop func()) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt)
-	done := make(chan struct{})
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	go func() {
-		for {
-			select {
-			case <-ch:
-				// discard - ACID section must finish
-			case <-done:
-				return
-			}
-		}
+		<-ctx.Done()
 	}()
-	return func() {
-		signal.Stop(ch)
-		close(done)
-		DrainSignals(ch)
-	}
+	return cancel
 }
 
 // ErrCancel is returned when the user cancels the picker (Esc/Ctrl+C).
@@ -51,10 +29,10 @@ var ErrCancel = errors.New("canceled")
 
 // RunPicker runs the interactive picker in a loop. On connect error, it
 // re-shows the picker with the error message in the status line.
-func RunPicker(ctl tmux.Connector, st *store.Store, createName, createCwd string, connect func(Item) error) error {
+func RunPicker(cfg *config.Config, ctl tmux.Connector, st store.Storer, createName, createCwd string, connect func(Item) error) error {
 	var lastErr string
 	for {
-		m := NewModel(ctl, st, createName, createCwd)
+		m := NewModel(cfg, ctl, st, createName, createCwd)
 		m.ui.status = lastErr
 		lastErr = ""
 
@@ -93,24 +71,21 @@ func RunPicker(ctl tmux.Connector, st *store.Store, createName, createCwd string
 	}
 }
 
+// RunCancellable wraps a Bubble Tea program with SIGINT handling.
+// SIGINT triggers tea.Quit, returning the current model.
+// Returns tea.Model even on interrupt so caller can read Done().
 func RunCancellable(p *tea.Program) (tea.Model, error) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt)
-	sigDone := make(chan struct{})
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
 	go func() {
-		select {
-		case <-sigCh:
-			p.Quit()
-		case <-sigDone:
-		}
+		<-ctx.Done()
+		p.Quit()
 	}()
+
 	final, err := p.Run()
-	close(sigDone)
-	signal.Stop(sigCh)
-	DrainSignals(sigCh)
 	if err != nil && err != tea.ErrInterrupted {
 		return final, err
 	}
-	// interrupt/cancel -> model may be partial; caller reads Done()/name
 	return final, nil
 }
