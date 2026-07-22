@@ -55,7 +55,7 @@ func RunPicker(ctl tmux.Connector, st *store.Store, createName, createCwd string
 	var lastErr string
 	for {
 		m := NewModel(ctl, st, createName, createCwd)
-		m.status = lastErr
+		m.ui.status = lastErr
 		lastErr = ""
 
 		opts, _, err := TeaOpts()

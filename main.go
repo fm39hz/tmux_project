@@ -102,7 +102,7 @@ func runPickerIPC(conn net.Conn) error {
 	defer st.Close()
 
 	env := picker.Context{
-		Session: resp.CtxSess, Path: resp.CtxPath,
+		Session: ctl.CurrentSession(), Path: ctl.CurrentSessionPath(),
 		Pairs: resp.Pairs, Usage: resp.Usage, Now: time.Now().Unix(),
 	}
 

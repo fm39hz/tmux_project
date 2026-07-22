@@ -18,6 +18,13 @@ const (
 	KindZoxide
 )
 
+// ID uniquely identifies a session/project. Session names are unique
+// within tmux; sources deduplicate by Name. This is the stable identity
+// for cursor tracking, animation, and dedup — not a convention string.
+type ID string
+
+func (it Item) ID() ID { return ID(it.Name) }
+
 // Item is one picker row from any Source.
 type Item struct {
 	Busy    string // non-shell tool in active pane (glance badge)

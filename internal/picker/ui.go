@@ -2,10 +2,8 @@ package picker
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +16,6 @@ import (
 	"github.com/fm39hz/gotomux/internal/template"
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
-
-type animTickMsg struct{}
 
 type Action int
 
@@ -35,38 +31,67 @@ type Result struct {
 	Err    error
 }
 
-type animEntry struct {
-	cur float64 // current rendering Y
-	dst float64 // target Y (rank index)
-}
-
-type model struct {
-	sources   []Source
-	bySrc     map[Source][]Item
-	view      []Item
-	cursorIdx int      // index in view (logical), for keyboard navigation
-	cursorKey string   // anim key of selected item, stable across animation
-	query     string
-	ctl      tmux.Connector
-	store    *store.Store
+// viewModel — UI state, tách biệt khỏi business logic.
+type viewModel struct {
+	items    []Item
+	cursor   int
+	selID    ID
+	query    string
 	status   string
 	done     Result
 	width    int
 	height   int
 	maxShow  int
-	cache    sourceCache
 	help     bool
-	tmpl     string
 	started  time.Time
-	env      Context
-	editPath   string
-	editOld    string
-	createName string
-	createCwd  string
-	anim     map[string]animEntry // item key → Y position
+	editPath string
+	editOld  string
 }
 
-func animKey(it Item) string { return it.Name + "\x00" + it.Path }
+func (v *viewModel) scrollOff() int {
+	ms := v.maxShow
+	if ms <= 0 {
+		ms = 12
+	}
+	half := ms / 2
+	s := v.cursor - half
+	if s < 0 {
+		s = 0
+	}
+	if s+ms > len(v.items) {
+		s = len(v.items) - ms
+	}
+	if s < 0 {
+		s = 0
+	}
+	return s
+}
+
+func (v *viewModel) visible() []Item {
+	start := v.scrollOff()
+	end := start + v.maxShow
+	if end > len(v.items) {
+		end = len(v.items)
+	}
+	return v.items[start:end]
+}
+
+// viewModel
+
+type model struct {
+	sources    []Source
+	bySrc      map[Source][]Item
+	ctl        tmux.Connector
+	store      *store.Store
+	cache      sourceCache
+	env        Context
+	tmpl       string
+	createName string
+	createCwd  string
+	ui         viewModel
+}
+
+// ID now method on Item { return it.Name + "\x00" + it.Path }
 
 var (
 	styleCursor = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
@@ -80,7 +105,7 @@ var (
 	styleHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-func (m model) Done() Result { return m.done }
+func (m model) Done() Result { return m.ui.done }
 
 func styleFor(k Kind) lipgloss.Style {
 	switch k {
@@ -115,12 +140,11 @@ func NewModelFromDaemon(ctl tmux.Connector, st *store.Store, createName, createC
 		cache:      cache,
 		ctl:        ctl,
 		store:      st,
-		maxShow:    12,
 		tmpl:       template.StickyLabel(st),
-		started:    time.Now(),
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
+		ui: viewModel{maxShow: 12, started: time.Now()},
 	}
 	m.refilter()
 	return m
@@ -141,12 +165,11 @@ func NewModel(ctl tmux.Connector, store *store.Store, createName, createCwd stri
 		cache:      cache,
 		ctl:        ctl,
 		store:      store,
-		maxShow:    12,
 		tmpl:       template.StickyLabel(store),
-		started:    time.Now(),
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
+		ui: viewModel{maxShow: 12, started: time.Now()},
 	}
 	m.refilter()
 	return m
@@ -155,7 +178,7 @@ func NewModel(ctl tmux.Connector, store *store.Store, createName, createCwd stri
 
 
 func (m *model) pool() []Item {
-	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.query))
+	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.ui.query))
 }
 
 func (m *model) mergeSource(src Source, items []Item) {
@@ -168,89 +191,35 @@ func (m *model) mergeSource(src Source, items []Item) {
 }
 
 func (m *model) refilter() {
-	q := strings.ToLower(strings.TrimSpace(m.query))
-	m.view = rankItems(q, m.pool())
+	// Preserve scroll offset so visual position doesn't jump on kill/delete.
+	q := strings.ToLower(strings.TrimSpace(m.ui.query))
+	m.ui.items = rankItems(q, m.pool())
 
-	// Sync cursorKey: find previously selected item in new view.
-	if m.cursorKey != "" && len(m.view) > 0 {
-		found := false
-		for i, it := range m.view {
-			if animKey(it) == m.cursorKey {
-				m.cursorIdx = i
-				found = true
-				break
-			}
-		}
-		if !found {
-			m.cursorIdx = 0
-		}
-	} else if len(m.view) > 0 {
-		m.cursorIdx = 0
+	if m.ui.cursor >= len(m.ui.items) {
+		m.ui.cursor = len(m.ui.items) - 1
 	}
-	if m.cursorIdx >= len(m.view) {
-		m.cursorIdx = len(m.view) - 1
+	if m.ui.cursor < 0 && len(m.ui.items) > 0 {
+		m.ui.cursor = 0
 	}
-	if m.cursorIdx < 0 && len(m.view) > 0 {
-		m.cursorIdx = 0
-	}
-	if len(m.view) > 0 {
-		m.cursorKey = animKey(m.view[m.cursorIdx])
+	if len(m.ui.items) > 0 {
+		m.ui.selID = m.ui.items[m.ui.cursor].ID()
 	} else {
-		m.cursorKey = ""
+		m.ui.selID = ""
 	}
 
-	for i := range m.view {
-		setGitBranch(&m.view[i])
-	}
-	// Update animation targets — keep old currents for new items.
-	old := m.anim
-	m.anim = map[string]animEntry{}
-	for i, it := range m.view {
-		key := animKey(it)
-		if e, ok := old[key]; ok {
-			e.dst = float64(i)
-			m.anim[key] = e
-		} else {
-			m.anim[key] = animEntry{cur: float64(i), dst: float64(i)}
-		}
+	for i := range m.ui.items {
+		setGitBranch(&m.ui.items[i])
 	}
 }
 
-// refilterFromQuery: user edited filter -> jump to best match.
 func (m *model) refilterFromQuery() {
 	m.refilter()
-	m.cursorIdx = 0
-}
-
-const animSpeed = 0.3
-
-// animTick moves all items toward their target by animSpeed fraction.
-// Returns false when all items have settled.
-func (m *model) animTick() bool {
-	busy := false
-	for k := range m.anim {
-		e := m.anim[k]
-		if e.cur == e.dst {
-			continue
-		}
-		e.cur += (e.dst - e.cur) * animSpeed
-		if math.Abs(e.cur-e.dst) < 0.01 {
-			e.cur = e.dst
-		} else {
-			busy = true
-		}
-		m.anim[k] = e
+	m.ui.cursor = 0
+	if len(m.ui.items) > 0 {
+		m.ui.selID = m.ui.items[0].ID()
+	} else {
+		m.ui.selID = ""
 	}
-	return busy
-}
-
-func animSettled(anim map[string]animEntry) bool {
-	for _, e := range anim {
-		if e.cur != e.dst {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *model) totalCount() int {
@@ -260,9 +229,6 @@ func (m *model) totalCount() int {
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, refreshCmds(m.sources)...)
-	if !animSettled(m.anim) {
-		cmds = append(cmds, tea.Tick(time.Second/60, func(t time.Time) tea.Msg { return animTickMsg{} }))
-	}
 	if len(cmds) == 0 {
 		return nil
 	}
@@ -271,54 +237,44 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case animTickMsg:
-		if m.animTick() {
-			return m, tea.Tick(time.Second/60, func(t time.Time) tea.Msg { return animTickMsg{} })
-		}
-		return m, nil
-
 	case sourceMsg:
 		if len(msg.items) == 0 {
 			return m, nil
 		}
 		m.mergeSource(msg.src, msg.items)
 		m.refilter()
-		// Start animation if needed
-		if !animSettled(m.anim) {
-			return m, tea.Tick(time.Second/60, func(t time.Time) tea.Msg { return animTickMsg{} })
-		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
+		m.ui.width, m.ui.height = msg.Width, msg.Height
 		// inline mode: keep list short like fzf --height
-		if m.maxShow <= 0 {
-			m.maxShow = 12
+		if m.ui.maxShow <= 0 {
+			m.ui.maxShow = 12
 		}
 		return m, nil
 
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			m.done = Result{Action: ActionQuit}
+			m.ui.done = Result{Action: ActionQuit}
 			return m, tea.Quit
 
 		case "esc":
 			// display-popup + bind -n M-* : releasing Alt often injects ESC into the
 			// new pane and would quit instantly. Ignore brief false ESC after open.
-			if time.Since(m.started) < 500*time.Millisecond {
+			if time.Since(m.ui.started) < 500*time.Millisecond {
 				return m, nil
 			}
-			m.done = Result{Action: ActionQuit}
+			m.ui.done = Result{Action: ActionQuit}
 			return m, tea.Quit
 
 		case "?":
-			m.help = !m.help
+			m.ui.help = !m.ui.help
 			return m, nil
 
 		case "ctrl+t": // sticky <- shape from selection; Create/Zox use it
-			if len(m.view) > 0 {
-				it := m.view[m.cursorIdx]
+			if len(m.ui.items) > 0 {
+				it := m.ui.items[m.ui.cursor]
 				var p *store.Preset
 				var err error
 				switch it.Kind {
@@ -328,20 +284,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					p, err = m.ctl.Freeze(it.Name)
 				default:
 					if err := template.ResetActive(m.store); err != nil {
-						m.status = err.Error()
+						m.ui.status = err.Error()
 					} else {
 						m.tmpl = "default"
-						m.status = "sticky: default"
+						m.ui.status = "sticky: default"
 					}
 					return m, nil
 				}
 				if err != nil {
-					m.status = err.Error()
+					m.ui.status = err.Error()
 					return m, nil
 				}
 				id, created, err := template.StickFrom(m.store, p)
 				if err != nil {
-					m.status = err.Error()
+					m.ui.status = err.Error()
 					return m, nil
 				}
 				m.tmpl = template.StickyLabel(m.store)
@@ -349,75 +305,75 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.tmpl = template.ShapeLabel(template.ToShape(p, id))
 				}
 				if created {
-					m.status = "sticky <- " + m.tmpl + "  (new)"
+					m.ui.status = "sticky <- " + m.tmpl + "  (new)"
 				} else {
-					m.status = "sticky <- " + m.tmpl
+					m.ui.status = "sticky <- " + m.tmpl
 				}
 				return m, nil
 			}
 			if err := template.ResetActive(m.store); err != nil {
-				m.status = err.Error()
+				m.ui.status = err.Error()
 			} else {
 				m.tmpl = "default"
-				m.status = "sticky: default"
+				m.ui.status = "sticky: default"
 			}
 			return m, nil
 
 		case "enter":
-			if len(m.view) > 0 && m.cursorIdx < len(m.view) {
-				m.done = Result{Action: ActionConnect, Item: m.view[m.cursorIdx]}
-				m.query = ""
-				m.view = m.view[:0]
+			if len(m.ui.items) > 0 && m.ui.cursor < len(m.ui.items) {
+				m.ui.done = Result{Action: ActionConnect, Item: m.ui.items[m.ui.cursor]}
+				m.ui.query = ""
+				m.ui.items = m.ui.items[:0]
 				return m, tea.Quit
 			}
 
 		case "ctrl+n", "down":
-			if len(m.view) > 0 {
-				m.cursorIdx = (m.cursorIdx + 1) % len(m.view)
-				m.cursorKey = animKey(m.view[m.cursorIdx])
+			if len(m.ui.items) > 0 {
+				m.ui.cursor = (m.ui.cursor + 1) % len(m.ui.items)
+				m.ui.selID = m.ui.items[m.ui.cursor].ID()
 			}
 			return m, nil
 
 		case "ctrl+p", "up":
-			if len(m.view) > 0 {
-				m.cursorIdx--
-				if m.cursorIdx < 0 {
-					m.cursorIdx = len(m.view) - 1
+			if len(m.ui.items) > 0 {
+				m.ui.cursor--
+				if m.ui.cursor < 0 {
+					m.ui.cursor = len(m.ui.items) - 1
 				}
-				m.cursorKey = animKey(m.view[m.cursorIdx])
+				m.ui.selID = m.ui.items[m.ui.cursor].ID()
 			}
 			return m, nil
 
 		case "ctrl+u":
-			m.query = ""
+			m.ui.query = ""
 			m.refilterFromQuery()
 			return m, nil
 
 		case "ctrl+w":
-			m.query = trimLastWord(m.query)
+			m.ui.query = trimLastWord(m.ui.query)
 			m.refilterFromQuery()
 			return m, nil
 
 		case "backspace":
-			if len(m.query) > 0 {
+			if len(m.ui.query) > 0 {
 				// drop last rune
-				r := []rune(m.query)
-				m.query = string(r[:len(r)-1])
+				r := []rune(m.ui.query)
+				m.ui.query = string(r[:len(r)-1])
 				m.refilterFromQuery()
 			}
 			return m, nil
 
 		case "ctrl+x": // kill active
-			if len(m.view) > 0 {
-				it := m.view[m.cursorIdx]
+			if len(m.ui.items) > 0 {
+				it := m.ui.items[m.ui.cursor]
 				if it.Kind == KindActive {
 					if err := m.ctl.Kill(it.Name); err != nil {
-						m.status = err.Error()
+						m.ui.status = err.Error()
 					} else {
 						if m.store != nil {
 							_ = m.store.RecordKill(it.Name)
 						}
-						m.status = "killed " + it.Name
+						m.ui.status = "killed " + it.Name
 						m.cache.invalidate()
 						m.reload()
 					}
@@ -426,49 +382,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "ctrl+f": // freeze instance+shape; sticky stays intentional (^t)
-			if len(m.view) > 0 {
-				it := m.view[m.cursorIdx]
+			if len(m.ui.items) > 0 {
+				it := m.ui.items[m.ui.cursor]
 				name := it.Name
 				if it.Kind == KindActive || (it.Kind == KindPreset && m.ctl.Has(name)) {
 					stop := HoldInterrupt()
 					sid, created, err := template.FreezeRemember(m.ctl, m.store, name)
 					stop()
 					if err != nil {
-						m.status = err.Error()
+						m.ui.status = err.Error()
 						return m, nil
 					}
 					if created {
-						m.status = "froze " + name + " | shape " + sid
+						m.ui.status = "froze " + name + " | shape " + sid
 					} else if sid != "" {
-						m.status = "froze " + name + " | shape " + sid + " (exists)"
+						m.ui.status = "froze " + name + " | shape " + sid + " (exists)"
 					} else {
-						m.status = "froze " + name
+						m.ui.status = "froze " + name
 					}
 					m.cache.invalidate()
 					m.reload()
 				} else if it.Kind == KindPreset {
-					m.status = "session not running - attach first"
+					m.ui.status = "session not running - attach first"
 				}
 			}
 			return m, nil
 
 		case "ctrl+e": // edit preset (Active: freeze to preset first)
-			if len(m.view) == 0 {
+			if len(m.ui.items) == 0 {
 				return m, nil
 			}
-			it := m.view[m.cursorIdx]
+			it := m.ui.items[m.ui.cursor]
 			switch it.Kind {
 			case KindActive:
 				stop := HoldInterrupt()
 				_, _, err := template.FreezeRemember(m.ctl, m.store, it.Name)
 				stop()
 				if err != nil {
-					m.status = err.Error()
+					m.ui.status = err.Error()
 					return m, nil
 				}
 				cmd, err := m.beginEdit(it.Name)
 				if err != nil {
-					m.status = err.Error()
+					m.ui.status = err.Error()
 					return m, nil
 				}
 				ClearInline(m.FrameLines())
@@ -476,24 +432,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case KindPreset:
 				cmd, err := m.beginEdit(it.Name)
 				if err != nil {
-					m.status = err.Error()
+					m.ui.status = err.Error()
 					return m, nil
 				}
 				ClearInline(m.FrameLines())
 				return m, cmd
 			default:
-				m.status = "edit: pick Active or Preset"
+				m.ui.status = "edit: pick Active or Preset"
 			}
 			return m, nil
 
 		case "ctrl+d": // delete preset
-			if len(m.view) > 0 {
-				it := m.view[m.cursorIdx]
+			if len(m.ui.items) > 0 {
+				it := m.ui.items[m.ui.cursor]
 				if it.Kind == KindPreset {
 					if err := m.store.Delete(it.Name); err != nil {
-						m.status = err.Error()
+						m.ui.status = err.Error()
 					} else {
-						m.status = "deleted " + it.Name
+						m.ui.status = "deleted " + it.Name
 						m.cache.invalidate()
 						m.reload()
 					}
@@ -510,7 +466,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if text := msg.Key().Text; text != "" {
 				for _, r := range text {
 					if unicode.IsPrint(r) {
-						m.query += string(r)
+						m.ui.query += string(r)
 					}
 				}
 				m.refilterFromQuery()
@@ -521,32 +477,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// editor left junk below; wipe so repaint is single frame
 		ClearInline(m.FrameLines())
 		if msg.err != nil {
-			m.status = msg.err.Error()
+			m.ui.status = msg.err.Error()
 		} else {
-			m.status = "saved " + msg.name
+			m.ui.status = "saved " + msg.name
 			m.cache.invalidate()
 			m.reload()
 		}
 		return m, nil
 	}
-	if !animSettled(m.anim) {
-		return m, tea.Tick(time.Second/60, func(t time.Time) tea.Msg { return animTickMsg{} })
-	}
 	return m, nil
 }
 
 func (m *model) reload() {
+	savedScroll := m.ui.scrollOff()
 	m.sources = defaultSources(m.ctl, m.store, m.createName, m.createCwd, &m.cache)
 	m.bySrc = snapshotAll(m.sources)
 	m.env = newContext(m.ctl, m.store)
 	applyRankMeta(m.bySrc, m.store, m.env)
 	enrichAllSync(m.bySrc)
 	m.refilter()
+	// Actions (kill/freeze/delete/edit) change list length → preserve scroll.
+	if savedScroll > 0 && savedScroll != m.ui.scrollOff() {
+		half := m.ui.maxShow / 2
+		c := savedScroll + half
+		if c >= len(m.ui.items) {
+			c = len(m.ui.items) - 1
+		}
+		if c >= 0 {
+			m.ui.cursor = c
+			m.ui.selID = m.ui.items[c].ID()
+		}
+	}
 }
 
 // FrameLines is fixed height of View - wipe residual inline UI after quit.
 func (m model) FrameLines() int {
-	maxShow := m.maxShow
+	maxShow := m.ui.maxShow
 	if maxShow <= 0 {
 		maxShow = 12
 	}
@@ -579,8 +545,8 @@ func (m *model) beginEdit(name string) (tea.Cmd, error) {
 		return nil, err
 	}
 	f.Close()
-	m.editPath = path
-	m.editOld = name
+	m.ui.editPath = path
+	m.ui.editOld = name
 
 	c := editorCmd(path)
 	if c.Stdin == nil {
@@ -640,11 +606,11 @@ func (m model) View() tea.View {
 
 	// First line: continuation prompt + query (giống gõ ở shell prompt).
 	b.WriteString(styleDim.Render(iconPrompt()))
-	b.WriteString(m.query)
+	b.WriteString(m.ui.query)
 	b.WriteByte('\n')
 	// Second line: header với count + meta + keys.
-	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
-	if m.help {
+	meta := fmt.Sprintf("  %d/%d", len(m.ui.items), m.totalCount())
+	if m.ui.help {
 		meta += "  ^n/p | enter | ^t sticky | ^x kill | ^f freeze | ^e edit | ^d del | ^u/^w | esc"
 	} else if m.tmpl != "" && m.tmpl != "default" {
 		meta += formatStickyMeta(m.tmpl) + "  enter | esc | ?"
@@ -654,48 +620,35 @@ func (m model) View() tea.View {
 	b.WriteString(styleHeader.Render(meta))
 	b.WriteByte('\n')
 
-	maxShow := m.maxShow
+	maxShow := m.ui.maxShow
 	if maxShow <= 0 {
 		maxShow = 12
 	}
 
 	shown := 0
-	if len(m.view) == 0 {
+	if len(m.ui.items) == 0 {
 		b.WriteString(styleDim.Render("  (no match)"))
 		b.WriteByte('\n')
 		shown = 1
 	} else {
 		half := maxShow / 2
-		start := m.cursorIdx - half
+		start := m.ui.cursor - half
 		if start < 0 {
 			start = 0
 		}
-		if start+maxShow > len(m.view) {
-			start = len(m.view) - maxShow
+		if start+maxShow > len(m.ui.items) {
+			start = len(m.ui.items) - maxShow
 		}
 		if start < 0 {
 			start = 0
 		}
 		end := start + maxShow
-		if end > len(m.view) {
-			end = len(m.view)
+		if end > len(m.ui.items) {
+			end = len(m.ui.items)
 		}
 
-		// Sort visible items by animated Y so moving items slide smoothly.
-		type visItem struct{ it Item }
-		vis := make([]visItem, 0, end-start)
 		for i := start; i < end; i++ {
-			vis = append(vis, visItem{m.view[i]})
-		}
-		if !animSettled(m.anim) {
-			sort.SliceStable(vis, func(a, b int) bool {
-				ya := m.anim[animKey(vis[a].it)].cur
-				yb := m.anim[animKey(vis[b].it)].cur
-				return ya < yb
-			})
-		}
-		for _, v := range vis {
-			it := v.it
+			it := m.ui.items[i]
 			line := it.Title
 			if it.GitBranch != "" {
 				line += " (" + it.GitBranch + ")"
@@ -710,10 +663,10 @@ func (m model) View() tea.View {
 				}
 				line += styleDim.Render(it.Desc)
 			}
-			if m.width > 4 {
-				line = truncateRunes(line, m.width-2)
+			if m.ui.width > 4 {
+				line = truncateRunes(line, m.ui.width-2)
 			}
-			if animKey(it) == m.cursorKey {
+			if it.ID() == m.ui.selID {
 				b.WriteString(styleCursor.Render(iconCursor() + line))
 			} else {
 				b.WriteString(styleFor(it.Kind).Render("  " + line))
@@ -729,8 +682,8 @@ func (m model) View() tea.View {
 	}
 
 	// status always occupies 1 line - fixed frame height for clearInline
-	if m.status != "" {
-		b.WriteString(styleStatus.Render(m.status))
+	if m.ui.status != "" {
+		b.WriteString(styleStatus.Render(m.ui.status))
 	}
 	b.WriteByte('\n')
 	return tea.NewView(b.String())
