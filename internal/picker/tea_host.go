@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // TeaOpts: force /dev/tty so display-popup still gets a real TTY.
@@ -45,19 +45,8 @@ func truncateRunes(s string, n int) string {
 
 // isModifierChord: ctrl/alt/meta combo that is not plain text.
 // Prevents ctrl+l etc. from inserting "l" into the filter.
-func isModifierChord(msg tea.KeyMsg) bool {
-	if msg.Alt {
-		return true
-	}
-	s := msg.String()
-	if strings.HasPrefix(s, "ctrl+") || strings.HasPrefix(s, "alt+") ||
-		strings.HasPrefix(s, "shift+ctrl+") || strings.HasPrefix(s, "ctrl+alt+") {
-		return true
-	}
-	if strings.Contains(s, "+") && msg.Type != tea.KeyRunes {
-		return true
-	}
-	return false
+func isModifierChord(msg tea.KeyPressMsg) bool {
+	return msg.Key().Mod != 0 && msg.Key().Mod != tea.ModShift
 }
 
 // ClearInline erases n lines of residual bubbletea inline UI (fzf-style).

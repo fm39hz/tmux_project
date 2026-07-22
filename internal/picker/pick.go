@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type pickModel struct {
@@ -56,7 +56,7 @@ func (m pickModel) Init() tea.Cmd { return nil }
 
 func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
 			m.quit = true
@@ -87,8 +87,8 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isModifierChord(msg) {
 				return m, nil
 			}
-			if msg.Type == tea.KeyRunes {
-				for _, r := range msg.Runes {
+			if text := msg.Key().Text; text != "" {
+				for _, r := range text {
 					if unicode.IsPrint(r) {
 						m.query += string(r)
 					}
@@ -100,7 +100,7 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m pickModel) View() string {
+func (m pickModel) View() tea.View {
 	var b strings.Builder
 	b.WriteString(m.query)
 	b.WriteString("\n")
@@ -115,5 +115,5 @@ func (m pickModel) View() string {
 		}
 		b.WriteByte('\n')
 	}
-	return b.String()
+	return tea.NewView(b.String())
 }

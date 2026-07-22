@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/fm39hz/gotomux/internal/store"
@@ -175,7 +175,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			m.done = Result{Action: ActionQuit}
@@ -383,8 +383,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// plain printable -> filter
-			if msg.Type == tea.KeyRunes {
-				for _, r := range msg.Runes {
+			if text := msg.Key().Text; text != "" {
+				for _, r := range text {
 					if unicode.IsPrint(r) {
 						m.query += string(r)
 					}
@@ -508,7 +508,7 @@ func trimLastWord(s string) string {
 	return s[:i+1]
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	var b strings.Builder
 
 	// Filter line: nerd prompt when available, else ASCII "> " (not shell-like).
@@ -592,7 +592,7 @@ func (m model) View() string {
 		b.WriteString(styleStatus.Render(m.status))
 	}
 	b.WriteByte('\n')
-	return b.String()
+	return tea.NewView(b.String())
 }
 
 
