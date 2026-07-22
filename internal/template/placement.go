@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
@@ -20,7 +21,7 @@ import (
 
 // PatternFromPreset maps each pane cwd to R/Ck against root's children at freeze time.
 // Trivial all-R returns "" (nothing to learn).
-func PatternFromPreset(p *store.Preset) string {
+func PatternFromPreset(p *model.Session) string {
 	if p == nil || p.Cwd == "" || len(p.Windows) == 0 {
 		return ""
 	}
@@ -31,7 +32,7 @@ func PatternFromPreset(p *store.Preset) string {
 	for _, w := range p.Windows {
 		panes := w.Panes
 		if len(panes) == 0 {
-			panes = []store.PresetPane{{}}
+			panes = []model.Pane{{}}
 		}
 		var slots []string
 		for _, pn := range panes {
@@ -85,7 +86,7 @@ func slotOf(root string, children []string, cwd string) string {
 }
 
 // ObservePlacement: best-effort learn non-trivial pattern for shapeID from instance.
-func ObservePlacement(st store.Storer, shapeID string, p *store.Preset) {
+func ObservePlacement(st store.Storer, shapeID string, p *model.Session) {
 	if st == nil || shapeID == "" || p == nil {
 		return
 	}
@@ -101,12 +102,12 @@ func ObservePlacement(st store.Storer, shapeID string, p *store.Preset) {
 // bakeShape materialises shape -> instance: placement slots + inferred split.
 // All inference lives here; Load only runs the resulting preset.
 // st/shapeID optional - without them, all panes = root, even split.
-func bakeShape(st store.Storer, tmpl *store.Preset, name, root, shapeID string) *store.Preset {
+func bakeShape(st store.Storer, tmpl *model.Session, name, root, shapeID string) *model.Session {
 	if root == "" {
 		root, _ = os.Getwd()
 	}
 	root = filepath.Clean(root)
-	p := &store.Preset{Name: name, Cwd: root}
+	p := &model.Session{Name: name, Cwd: root}
 	if tmpl == nil || len(tmpl.Windows) == 0 {
 		tmpl = builtinDefault()
 	}
@@ -128,13 +129,13 @@ func bakeShape(st store.Storer, tmpl *store.Preset, name, root, shapeID string) 
 		if i < len(slots) && len(slots[i]) == n {
 			winSlots = slots[i]
 		}
-		pw := store.PresetWindow{
+		pw := model.Window{
 			Idx:    i,
 			Name:   w.Name,
 			Layout: tmux.InferSplit(w.Layout, n),
 			Cwd:    root,
 		}
-		pw.Panes = make([]store.PresetPane, n)
+		pw.Panes = make([]model.Pane, n)
 		for j := 0; j < n; j++ {
 			cwd := root
 			if winSlots != nil {
@@ -144,7 +145,7 @@ func bakeShape(st store.Storer, tmpl *store.Preset, name, root, shapeID string) 
 			if j < len(w.Panes) {
 				cmd = w.Panes[j].Cmd
 			}
-			pw.Panes[j] = store.PresetPane{Idx: j, Cwd: cwd, Cmd: cmd}
+			pw.Panes[j] = model.Pane{Idx: j, Cwd: cwd, Cmd: cmd}
 			if j == 0 {
 				pw.Cwd = cwd
 			}

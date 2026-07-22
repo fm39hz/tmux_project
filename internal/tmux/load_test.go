@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/model"
 )
 
 // mirrors tmuxp/dotnet-grimoire-net.json:
@@ -31,28 +31,28 @@ func TestLoadGrimoireShape(t *testing.T) {
 	testDir := root + "/test"
 	_ = exec.Command("mkdir", "-p", testDir).Run()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: name,
 		Cwd:  root,
-		Windows: []store.PresetWindow{
+		Windows: []model.Window{
 			{
 				Name: "editor",
 				Cwd:  root,
-				Panes: []store.PresetPane{
+				Panes: []model.Pane{
 					{Idx: 1, Cwd: root, Cmd: "nvim"},
 				},
 			},
 			{
 				Name: "test",
 				Cwd:  root,
-				Panes: []store.PresetPane{
+				Panes: []model.Pane{
 					{Idx: 1, Cwd: root, Cmd: ""},
 					{Idx: 2, Cwd: testDir, Cmd: ""},
 				},
 			},
 		},
 	}
-	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
+	if err := ctl.Load(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
 	if !ctl.Has(context.Background(), name) {
@@ -137,16 +137,16 @@ func TestLoadKhoCongShape(t *testing.T) {
 	a, b := root+"/cong-dlqg", root+"/kho-dl-mo"
 	_ = exec.Command("mkdir", "-p", a, b).Run()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: name,
 		Cwd:  root,
-		Windows: []store.PresetWindow{
-			{Name: "code", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "nvim"}}},
-			{Name: "shell", Cwd: root, Panes: []store.PresetPane{{Cwd: a}, {Cwd: b}}},
-			{Name: "files", Cwd: root, Panes: []store.PresetPane{{Cwd: root, Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Name: "code", Cwd: root, Panes: []model.Pane{{Cwd: root, Cmd: "nvim"}}},
+			{Name: "shell", Cwd: root, Panes: []model.Pane{{Cwd: a}, {Cwd: b}}},
+			{Name: "files", Cwd: root, Panes: []model.Pane{{Cwd: root, Cmd: "yazi"}}},
 		},
 	}
-	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
+	if err := ctl.Load(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -226,16 +226,16 @@ func TestLoadWindowNamedLikeSession(t *testing.T) {
 	root := "/tmp/tp-ambig"
 	_ = exec.Command("mkdir", "-p", root).Run()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: name,
 		Cwd:  root,
-		Windows: []store.PresetWindow{
-			{Name: "nvim", Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
-			{Name: name, Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
-			{Name: "pi", Cwd: root, Panes: []store.PresetPane{{Cwd: root}}},
+		Windows: []model.Window{
+			{Name: "nvim", Cwd: root, Panes: []model.Pane{{Cwd: root}}},
+			{Name: name, Cwd: root, Panes: []model.Pane{{Cwd: root}}},
+			{Name: "pi", Cwd: root, Panes: []model.Pane{{Cwd: root}}},
 		},
 	}
-	if err := ctl.Load(context.Background(), store.SessionToModel(p)); err != nil {
+	if err := ctl.Load(context.Background(), p); err != nil {
 		t.Fatalf("load with window==session name: %v", err)
 	}
 	out, err := exec.Command("tmux", "list-windows", "-t", name, "-F", "#{window_index}:#{window_name}").Output()

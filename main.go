@@ -166,7 +166,7 @@ func runPickerIPC(cfg *config.Config, conn net.Conn) error {
 		if e != nil {
 			return e
 		}
-		return ctl.ConnectPreset(ctx, store.SessionToModel(p))
+		return ctl.ConnectPreset(ctx, p)
 	default:
 		return template.ConnectProject(ctl, st, it.Name, it.Path)
 	}
@@ -226,7 +226,7 @@ func connectItem(ctl tmux.Connector, st store.Storer, it picker.Item) error {
 		if e != nil {
 			return e
 		}
-		return ctl.ConnectPreset(ctx, store.SessionToModel(p))
+		return ctl.ConnectPreset(ctx, p)
 	default:
 		return fmt.Errorf("unknown kind %v", it.Kind)
 	}

@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
@@ -18,7 +19,7 @@ import (
 // Hit counters in DB only — fork label is human-readable everywhere.
 
 // WindowForkLabel returns a human-readable fork identifier like "2|even-vertical|nvim,sh".
-func WindowForkLabel(w store.PresetWindow) string {
+func WindowForkLabel(w model.Window) string {
 	n := len(w.Panes)
 	if n == 0 {
 		n = 1
@@ -41,14 +42,14 @@ func WindowForkLabel(w store.PresetWindow) string {
 }
 
 // WindowForkKey returns a stable hash key for DB storage.
-func WindowForkKey(w store.PresetWindow) string {
+func WindowForkKey(w model.Window) string {
 	label := WindowForkLabel(w)
 	sum := sha256.Sum256([]byte(label))
 	return hex.EncodeToString(sum[:8])
 }
 
 // WindowForkBody — JSON fragment for DB storage (product, readable, no cwd).
-func WindowForkBody(w store.PresetWindow) string {
+func WindowForkBody(w model.Window) string {
 	n := len(w.Panes)
 	if n == 0 {
 		n = 1
@@ -80,7 +81,7 @@ func WindowForkBody(w store.PresetWindow) string {
 }
 
 // ObserveForks records every window as a fork unit.
-func ObserveForks(st store.Storer, p *store.Preset) {
+func ObserveForks(st store.Storer, p *model.Session) {
 	if st == nil || p == nil {
 		return
 	}

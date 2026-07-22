@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 )
 
@@ -19,15 +20,15 @@ func TestReconcileConfigShapesRenamesAndPrunes(t *testing.T) {
 	}
 	defer st.Close()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "s", Cwd: "/r",
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
-			{Panes: []store.PresetPane{{Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Layout: "even-vertical", Panes: []model.Pane{{}, {}}},
+			{Panes: []model.Pane{{Cmd: "yazi"}}},
 		},
 	}
-	id, _, err := FreezeSave(st, store.SessionToModel(p), true)
+	id, _, err := FreezeSave(st, p, true)
 	if err != nil {
 		t.Fatal(err)
 	}

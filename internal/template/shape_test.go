@@ -3,7 +3,7 @@ package template
 import (
 	"testing"
 
-	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/model"
 )
 
 func TestNormalizeShapeBody(t *testing.T) {
@@ -68,7 +68,7 @@ func TestShapeKeyNil(t *testing.T) {
 }
 
 func TestShapeKeyEmptyWindows(t *testing.T) {
-	p := &store.Preset{Name: "empty", Windows: nil}
+	p := &model.Session{Name: "empty", Windows: nil}
 	k := ShapeKey(p)
 	if k == "" {
 		t.Error("ShapeKey should not be empty for nil windows (default window)")
@@ -139,7 +139,7 @@ func TestIsShapeID(t *testing.T) {
 }
 
 func TestLooksLikeShapeTree(t *testing.T) {
-	p := &store.Preset{Name: "s", Windows: []store.PresetWindow{{Panes: []store.PresetPane{{}}}}}
+	p := &model.Session{Name: "s", Windows: []model.Window{{Panes: []model.Pane{{}}}}}
 	if !looksLikeShapeTree(p) {
 		t.Error("should look like shape tree (no cwd)")
 	}

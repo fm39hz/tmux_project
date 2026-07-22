@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/tmux"
 )
 
@@ -17,7 +17,7 @@ import (
 //   - multi + tools    -> tool(s) + count if needed
 //   - join windows with "+"
 //   - path/session noise already stripped by ToShape roles
-func ShapeLabel(p *store.Preset) string {
+func ShapeLabel(p *model.Session) string {
 	if p == nil || len(p.Windows) == 0 {
 		return "empty"
 	}
@@ -44,7 +44,7 @@ func ShapeLabel(p *store.Preset) string {
 	return lab
 }
 
-func windowLabel(w store.PresetWindow) string {
+func windowLabel(w model.Window) string {
 	n := len(w.Panes)
 	if n == 0 {
 		n = 1
@@ -71,7 +71,7 @@ func windowLabel(w store.PresetWindow) string {
 	}
 }
 
-func paneTools(w store.PresetWindow) []string {
+func paneTools(w model.Window) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, pn := range w.Panes {
@@ -85,7 +85,7 @@ func paneTools(w store.PresetWindow) []string {
 	return out
 }
 
-func toolOf(w store.PresetWindow) string {
+func toolOf(w model.Window) string {
 	ts := paneTools(w)
 	if len(ts) == 1 {
 		return ts[0]

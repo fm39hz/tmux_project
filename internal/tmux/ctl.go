@@ -12,7 +12,6 @@ import (
 
 	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
-	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/toolclass"
 )
 
@@ -321,7 +320,7 @@ func (c *Ctl) Freeze(ctx context.Context, name string) (*model.Session, error) {
 		idx    int
 		name   string
 		layout string
-		panes  []store.PresetPane
+		panes  []model.Pane
 		cwd    string
 	}
 	order := []int{}
@@ -358,7 +357,7 @@ func (c *Ctl) Freeze(ctx context.Context, name string) (*model.Session, error) {
 			order = append(order, wIdx)
 		}
 		cmd := detectPaneCmd(pCur, pStart, int32(pPid64), procs)
-		w.panes = append(w.panes, store.PresetPane{
+		w.panes = append(w.panes, model.Pane{
 			Idx: pIdx,
 			Cwd: pPath,
 			Cmd: cmd,
@@ -370,13 +369,13 @@ func (c *Ctl) Freeze(ctx context.Context, name string) (*model.Session, error) {
 		}
 	}
 
-	p := &store.Preset{Name: name, Cwd: sessPath}
+	sess := &model.Session{Name: name, Cwd: sessPath}
 	for _, wi := range order {
 		w := byIdx[wi]
 		if w.cwd == "" {
-			w.cwd = p.Cwd
+			w.cwd = sess.Cwd
 		}
-		p.Windows = append(p.Windows, store.PresetWindow{
+		sess.Windows = append(sess.Windows, model.Window{
 			Idx:    w.idx,
 			Name:   w.name,
 			Cwd:    w.cwd,
@@ -384,39 +383,38 @@ func (c *Ctl) Freeze(ctx context.Context, name string) (*model.Session, error) {
 			Panes:  w.panes,
 		})
 	}
-	if p.Cwd == "" && len(p.Windows) > 0 {
-		p.Cwd = p.Windows[0].Cwd
+	if sess.Cwd == "" && len(sess.Windows) > 0 {
+		sess.Cwd = sess.Windows[0].Cwd
 	}
-	return store.SessionToModel(p), nil
+	return sess, nil
 }
 
-func (c *Ctl) Load(ctx context.Context, s *model.Session) error {
-	p := store.ModelToSession(s)
-	if !project.ValidSessionName(p.Name) {
-		return fmt.Errorf("invalid session name %q", p.Name)
+func (c *Ctl) Load(ctx context.Context, sess *model.Session) error {
+	if !project.ValidSessionName(sess.Name) {
+		return fmt.Errorf("invalid session name %q", sess.Name)
 	}
-	if c.Has(ctx, p.Name) {
+	if c.Has(ctx, sess.Name) {
 		return nil
 	}
 
-	sessCwd := p.Cwd
+	sessCwd := sess.Cwd
 	if sessCwd == "" {
 		var err error
 		sessCwd, err = os.Getwd()
 		if err != nil {
-			return fmt.Errorf("load %q: cwd: %w", p.Name, err)
+			return fmt.Errorf("load %q: cwd: %w", sess.Name, err)
 		}
 	}
 	base := c.windowBaseIndex(ctx)
 
-	wins := normalizeWindows(p.Windows, sessCwd)
+	wins := normalizeWindows(sess.Windows, sessCwd)
 	var parts [][]string
 
-	appendWin := func(i int, w store.PresetWindow, create []string) {
+	appendWin := func(i int, w model.Window, create []string) {
 		parts = append(parts, create)
-		t := windowTarget(p.Name, base+i)
+		t := windowTarget(sess.Name, base+i)
 		parts = append(parts, []string{"set-option", "-t", t, "automatic-rename", "off"})
-		if safe := safeWindowName(w.Name, p.Name); safe != "" {
+		if safe := safeWindowName(w.Name, sess.Name); safe != "" {
 			parts = append(parts, []string{"rename-window", "-t", t, safe})
 		}
 		for _, pn := range w.Panes[1:] {
@@ -432,8 +430,8 @@ func (c *Ctl) Load(ctx context.Context, s *model.Session) error {
 	}
 
 	w0, p0 := wins[0], wins[0].Panes[0]
-	ns := []string{"new-session", "-d", "-s", p.Name, "-c", p0.Cwd}
-	if safe := safeWindowName(w0.Name, p.Name); safe != "" {
+	ns := []string{"new-session", "-d", "-s", sess.Name, "-c", p0.Cwd}
+	if safe := safeWindowName(w0.Name, sess.Name); safe != "" {
 		ns = append(ns, "-n", safe)
 	}
 	if p0.Cmd != "" {
@@ -443,8 +441,8 @@ func (c *Ctl) Load(ctx context.Context, s *model.Session) error {
 
 	for i, w := range wins[1:] {
 		pn := w.Panes[0]
-		nw := []string{"new-window", "-t", sessionTarget(p.Name), "-d", "-c", pn.Cwd}
-		if safe := safeWindowName(w.Name, p.Name); safe != "" {
+		nw := []string{"new-window", "-t", sessionTarget(sess.Name), "-d", "-c", pn.Cwd}
+		if safe := safeWindowName(w.Name, sess.Name); safe != "" {
 			nw = append(nw, "-n", safe)
 		}
 		if pn.Cmd != "" {
@@ -453,11 +451,11 @@ func (c *Ctl) Load(ctx context.Context, s *model.Session) error {
 		appendWin(i+1, w, nw)
 	}
 
-	parts = append(parts, []string{"select-window", "-t", windowTarget(p.Name, base)})
+	parts = append(parts, []string{"select-window", "-t", windowTarget(sess.Name, base)})
 
 	if err := c.runChain(ctx, parts...); err != nil {
-		_ = c.Kill(ctx, p.Name)
-		return fmt.Errorf("load %q: %w", p.Name, err)
+		_ = c.Kill(ctx, sess.Name)
+		return fmt.Errorf("load %q: %w", sess.Name, err)
 	}
 	return nil
 }
@@ -497,15 +495,15 @@ func safeWindowName(name, session string) string {
 	return name
 }
 
-func normalizeWindows(wins []store.PresetWindow, sessCwd string) []store.PresetWindow {
+func normalizeWindows(wins []model.Window, sessCwd string) []model.Window {
 	if len(wins) == 0 {
-		return []store.PresetWindow{{
+		return []model.Window{{
 			Name:  "",
 			Cwd:   sessCwd,
-			Panes: []store.PresetPane{{Cwd: sessCwd}},
+			Panes: []model.Pane{{Cwd: sessCwd}},
 		}}
 	}
-	out := make([]store.PresetWindow, len(wins))
+	out := make([]model.Window, len(wins))
 	for i, w := range wins {
 		out[i] = w
 		wcwd := w.Cwd
@@ -514,10 +512,10 @@ func normalizeWindows(wins []store.PresetWindow, sessCwd string) []store.PresetW
 		}
 		out[i].Cwd = wcwd
 		if len(w.Panes) == 0 {
-			out[i].Panes = []store.PresetPane{{Cwd: wcwd}}
+			out[i].Panes = []model.Pane{{Cwd: wcwd}}
 			continue
 		}
-		panes := make([]store.PresetPane, len(w.Panes))
+		panes := make([]model.Pane, len(w.Panes))
 		for j, pn := range w.Panes {
 			panes[j] = pn
 			if panes[j].Cwd == "" {

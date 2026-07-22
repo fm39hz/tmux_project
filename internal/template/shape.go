@@ -7,26 +7,27 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
 	"github.com/fm39hz/gotomux/internal/toolclass"
 )
 
-func builtinDefault() *store.Preset {
-	return &store.Preset{
+func builtinDefault() *model.Session {
+	return &model.Session{
 		Name: "default",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{}}},
-			{Name: "shell", Panes: []store.PresetPane{{}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{}}},
+			{Name: "shell", Panes: []model.Pane{{}}},
 		},
 	}
 }
 
-func ToShape(p *store.Preset, id string) *store.Preset {
+func ToShape(p *model.Session, id string) *model.Session {
 	if p == nil {
 		return builtinDefault()
 	}
-	out := &store.Preset{Name: id}
+	out := &model.Session{Name: id}
 	if out.Name == "" {
 		out.Name = "shape"
 	}
@@ -40,11 +41,11 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 		if n == 0 {
 			n = 1
 		}
-		pw := store.PresetWindow{
+		pw := model.Window{
 			Idx:    i,
 			Layout: tmux.LayoutForShape(w.Layout, n),
 		}
-		pw.Panes = make([]store.PresetPane, n)
+		pw.Panes = make([]model.Pane, n)
 		for j := 0; j < n; j++ {
 			pw.Panes[j].Idx = j
 			if j < len(w.Panes) {
@@ -60,7 +61,7 @@ func ToShape(p *store.Preset, id string) *store.Preset {
 	return out
 }
 
-func ShapeKey(p *store.Preset) string {
+func ShapeKey(p *model.Session) string {
 	if p == nil {
 		return ""
 	}
@@ -90,7 +91,7 @@ func ShapeKey(p *store.Preset) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func shapeIDFrom(_ *store.Preset, key string) string {
+func shapeIDFrom(_ *model.Session, key string) string {
 	if key == "" {
 		return "shape-0000000000000000"
 	}
@@ -107,15 +108,15 @@ func normalizeShapeBody(id, body string) string {
 	return Format(pure)
 }
 
-func mustParseShape(id, body string) *store.Preset {
+func mustParseShape(id, body string) *model.Session {
 	p, err := Parse(body)
 	if err != nil {
-		return &store.Preset{Name: id}
+		return &model.Session{Name: id}
 	}
 	return ToShape(p, id)
 }
 
-func windowChromeRole(raw string, w store.PresetWindow, idx int, sess, projBase string) string {
+func windowChromeRole(raw string, w model.Window, idx int, sess, projBase string) string {
 	n := len(w.Panes)
 	if n == 0 {
 		n = 1
@@ -132,7 +133,7 @@ func windowChromeRole(raw string, w store.PresetWindow, idx int, sess, projBase 
 	return defaultChrome(n)
 }
 
-func roleFromTools(w store.PresetWindow) string {
+func roleFromTools(w model.Window) string {
 	var tools []string
 	seen := map[string]bool{}
 	for _, pn := range w.Panes {
@@ -195,7 +196,7 @@ func neutralRoleSlug(name string) string {
 
 func defaultChrome(nPanes int) string { return "shell" }
 
-func shapeBody(p *store.Preset, forceDefault bool) (id, key, body string) {
+func shapeBody(p *model.Session, forceDefault bool) (id, key, body string) {
 	pure := ToShape(p, "tmp")
 	key = ShapeKey(pure)
 	if forceDefault {
@@ -207,7 +208,7 @@ func shapeBody(p *store.Preset, forceDefault bool) (id, key, body string) {
 	return id, key, Format(pure)
 }
 
-func observeAfterShape(st store.Storer, shapeID string, p *store.Preset) {
+func observeAfterShape(st store.Storer, shapeID string, p *model.Session) {
 	ObservePlacement(st, shapeID, p)
 	ObserveForks(st, p)
 }

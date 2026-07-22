@@ -10,34 +10,15 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/fm39hz/gotomux/internal/config"
+	"github.com/fm39hz/gotomux/internal/model"
 )
-
-type Preset struct {
-	Name    string
-	Cwd     string
-	Windows []PresetWindow
-}
-
-type PresetWindow struct {
-	Idx    int
-	Name   string
-	Cwd    string
-	Layout string
-	Panes  []PresetPane
-}
-
-type PresetPane struct {
-	Idx int
-	Cwd string
-	Cmd string
-}
 
 type Storer interface {
 	Close() error
 	Prune()
 
-	Get(name string) (*Preset, error)
-	Save(p *Preset) error
+	Get(name string) (*model.Session, error)
+	Save(s *model.Session) error
 	Delete(name string) error
 	ListNames() ([]string, error)
 	ListMeta() ([]PresetMeta, error)
@@ -51,7 +32,7 @@ type Storer interface {
 	RecordPairsWithLive(name string, live []string)
 	PairScores(ctx string, now int64) (map[string]int64, error)
 
-	SaveFreeze(p *Preset, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error)
+	SaveFreeze(s *model.Session, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error)
 	StickShape(shapeID, shapeKey, shapeBody string) (outID string, created bool, err error)
 	RememberShapeOnly(shapeID, shapeKey, shapeBody string) (outID string, created bool, err error)
 	GetShape(id string) (body string, ok bool)

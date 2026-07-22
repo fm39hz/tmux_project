@@ -17,7 +17,7 @@ type mockStorer struct {
 	shapes   map[string]string // id -> body
 	keys     map[string]string // key -> id
 	stickyID string
-	presets  map[string]*store.Preset
+	presets  map[string]*model.Session
 	ucalls   []string
 }
 
@@ -25,7 +25,7 @@ func newMockStorer() *mockStorer {
 	return &mockStorer{
 		shapes:  map[string]string{},
 		keys:    map[string]string{},
-		presets: map[string]*store.Preset{},
+		presets: map[string]*model.Session{},
 	}
 }
 
@@ -67,7 +67,7 @@ func (m *mockStorer) StickShape(shapeID, shapeKey, shapeBody string) (string, bo
 	return shapeID, true, nil
 }
 
-func (m *mockStorer) SaveFreeze(p *store.Preset, shapeID, shapeKey, shapeBody string, setSticky bool) (string, bool, error) {
+func (m *mockStorer) SaveFreeze(p *model.Session, shapeID, shapeKey, shapeBody string, setSticky bool) (string, bool, error) {
 	m.shapes[shapeID] = shapeBody
 	m.keys[shapeKey] = shapeID
 	m.presets[p.Name] = p
@@ -83,7 +83,7 @@ func (m *mockStorer) RememberShapeOnly(shapeID, shapeKey, shapeBody string) (str
 	return shapeID, true, nil
 }
 
-func (m *mockStorer) Get(name string) (*store.Preset, error) {
+func (m *mockStorer) Get(name string) (*model.Session, error) {
 	p, ok := m.presets[name]
 	if !ok {
 		return nil, nil
@@ -176,10 +176,10 @@ func TestFreezeSave(t *testing.T) {
 
 func TestStickFrom(t *testing.T) {
 	st := newMockStorer()
-	p := &store.Preset{Name: "test-session", Cwd: "/tmp",
-		Windows: []store.PresetWindow{
-			{Name: "code", Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Name: "term", Panes: []store.PresetPane{{}}},
+	p := &model.Session{Name: "test-session", Cwd: "/tmp",
+		Windows: []model.Window{
+			{Name: "code", Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Name: "term", Panes: []model.Pane{{}}},
 		},
 	}
 	id, created, err := template.StickFrom(st, p)
@@ -216,9 +216,9 @@ func TestLoadActiveDefault(t *testing.T) {
 
 func TestLoadActiveSticky(t *testing.T) {
 	st := newMockStorer()
-	p := &store.Preset{Name: "my-session", Cwd: "/tmp",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cmd: "nvim"}}},
+	p := &model.Session{Name: "my-session", Cwd: "/tmp",
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cmd: "nvim"}}},
 		},
 	}
 	sid, _, err := template.StickFrom(st, p)
@@ -252,7 +252,7 @@ func TestConnectProjectExisting(t *testing.T) {
 
 func TestConnectProjectPreset(t *testing.T) {
 	st := newMockStorer()
-	st.presets["my-session"] = &store.Preset{Name: "my-session", Cwd: "/tmp"}
+	st.presets["my-session"] = &model.Session{Name: "my-session", Cwd: "/tmp"}
 	ctl := &mockConnector{}
 	err := template.ConnectProject(ctl, st, "my-session", "/tmp")
 	if err != nil {

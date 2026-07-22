@@ -1,6 +1,10 @@
 package store
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/fm39hz/gotomux/internal/model"
+)
 
 func TestSaveOverwritesAliasAndCwd(t *testing.T) {
 	s, err := Open()
@@ -10,23 +14,23 @@ func TestSaveOverwritesAliasAndCwd(t *testing.T) {
 	defer s.Close()
 	// isolate: use unique cwd under temp - but store is real user db.
 	// Use distinctive names that won't collide with user presets.
-	a := &Preset{
+	a := &model.Session{
 		Name: "zztestalias",
 		Cwd:  "/tmp/gotomux-save-test-root",
-		Windows: []PresetWindow{
-			{Name: "w", Panes: []PresetPane{{Cwd: "/tmp/gotomux-save-test-root", Cmd: "true"}}},
+		Windows: []model.Window{
+			{Name: "w", Panes: []model.Pane{{Cwd: "/tmp/gotomux-save-test-root", Cmd: "true"}}},
 		},
 	}
 	if err := s.Save(a); err != nil {
 		t.Fatal(err)
 	}
 	// legacy-style alias name, same cwd, more panes
-	b := &Preset{
+	b := &model.Session{
 		Name: "zz-test-alias", // different spelling, same alias key if we strip -
 		Cwd:  "/tmp/gotomux-save-test-root",
-		Windows: []PresetWindow{
-			{Name: "w1", Panes: []PresetPane{{Cwd: "/tmp/gotomux-save-test-root"}}},
-			{Name: "w2", Panes: []PresetPane{{Cwd: "/tmp/gotomux-save-test-root"}}},
+		Windows: []model.Window{
+			{Name: "w1", Panes: []model.Pane{{Cwd: "/tmp/gotomux-save-test-root"}}},
+			{Name: "w2", Panes: []model.Pane{{Cwd: "/tmp/gotomux-save-test-root"}}},
 		},
 	}
 	// force alias collision: zztestalias vs zztestalias after strip of zz-test-alias
@@ -72,11 +76,11 @@ func TestSaveFreezeAtomic(t *testing.T) {
 	}
 	defer st.Close()
 
-	p := &Preset{
+	p := &model.Session{
 		Name: "zz-acid",
 		Cwd:  "/tmp/zz-acid",
-		Windows: []PresetWindow{
-			{Name: "w", Panes: []PresetPane{{Cwd: "/tmp/zz-acid", Cmd: "true"}}},
+		Windows: []model.Window{
+			{Name: "w", Panes: []model.Pane{{Cwd: "/tmp/zz-acid", Cmd: "true"}}},
 		},
 	}
 	// pure shape body minimal

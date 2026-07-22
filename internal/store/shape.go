@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
 )
 
@@ -18,19 +19,19 @@ type ShapeRow struct {
 // SaveFreeze: ONE transaction - instance preset tree + pure shape (dedupe by key).
 // setSticky true -> sticky points at resulting shape id in same tx.
 // Call writeConfigMirror only AFTER this returns nil (post-commit).
-func (s *Store) SaveFreeze(p *Preset, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error) {
-	if p == nil {
+func (s *Store) SaveFreeze(sess *model.Session, shapeID, shapeKey, shapeBody string, setSticky bool) (outShapeID string, shapeCreated bool, err error) {
+	if sess == nil {
 		return "", false, fmt.Errorf("nil preset")
 	}
-	if !project.ValidSessionName(p.Name) {
-		return "", false, fmt.Errorf("invalid session name %q", p.Name)
+	if !project.ValidSessionName(sess.Name) {
+		return "", false, fmt.Errorf("invalid session name %q", sess.Name)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return "", false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := savePresetTx(tx, p); err != nil {
+	if err := savePresetTx(tx, sess); err != nil {
 		return "", false, err
 	}
 	outShapeID, shapeCreated, err = putShapeTx(tx, shapeID, shapeKey, shapeBody)
@@ -139,25 +140,25 @@ func min6(key string) int {
 	return 6
 }
 
-func savePresetTx(tx *sql.Tx, p *Preset) error {
+func savePresetTx(tx *sql.Tx, sess *model.Session) error {
 	now := time.Now().Unix()
-	if err := deleteSessionsForSave(tx, p.Name, p.Cwd); err != nil {
+	if err := deleteSessionsForSave(tx, sess.Name, sess.Cwd); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
 		`INSERT INTO session(name, cwd, created_at, last_used) VALUES(?,?,?,?)`,
-		p.Name, p.Cwd, now, now,
+		sess.Name, sess.Cwd, now, now,
 	); err != nil {
 		return err
 	}
-	for i, w := range p.Windows {
+	for i, w := range sess.Windows {
 		widx := w.Idx
 		if widx == 0 {
 			widx = i
 		}
 		res, err := tx.Exec(
 			`INSERT INTO window(session, idx, name, cwd, layout) VALUES(?,?,?,?,?)`,
-			p.Name, widx, w.Name, w.Cwd, w.Layout,
+			sess.Name, widx, w.Name, w.Cwd, w.Layout,
 		)
 		if err != nil {
 			return err

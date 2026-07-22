@@ -4,24 +4,25 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 )
 
 func TestWindowForkKeyStableAcrossProjects(t *testing.T) {
-	a := store.PresetWindow{
+	a := model.Window{
 		Name: "editor", Cwd: "/work/a",
-		Panes: []store.PresetPane{{Cwd: "/work/a", Cmd: "nvim"}},
+		Panes: []model.Pane{{Cwd: "/work/a", Cmd: "nvim"}},
 	}
-	b := store.PresetWindow{
+	b := model.Window{
 		Name: "code", Cwd: "/other/b",
-		Panes: []store.PresetPane{{Cwd: "/other/b/src", Cmd: "nvim"}},
+		Panes: []model.Pane{{Cwd: "/other/b/src", Cmd: "nvim"}},
 	}
 	if WindowForkKey(a) != WindowForkKey(b) {
 		t.Fatalf("nvimx1 must be one fork: %s vs %s", WindowForkKey(a), WindowForkKey(b))
 	}
-	shell := store.PresetWindow{
+	shell := model.Window{
 		Layout: "even-vertical",
-		Panes:  []store.PresetPane{{}, {}},
+		Panes:  []model.Pane{{}, {}},
 	}
 	if WindowForkKey(a) == WindowForkKey(shell) {
 		t.Fatal("editor != shell-v2")
@@ -37,27 +38,27 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 	}
 	defer st.Close()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "proj", Cwd: "/work/x",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Name: "shell", Layout: "4080,158x35,0,0[1,2]", Panes: []store.PresetPane{{}, {}}},
-			{Name: "yazi", Panes: []store.PresetPane{{Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Name: "shell", Layout: "4080,158x35,0,0[1,2]", Panes: []model.Pane{{}, {}}},
+			{Name: "yazi", Panes: []model.Pane{{Cmd: "yazi"}}},
 		},
 	}
 	// two freezes -> hit counts
-	if _, _, err := FreezeSave(st, store.SessionToModel(p), false); err != nil {
+	if _, _, err := FreezeSave(st, p, false); err != nil {
 		t.Fatal(err)
 	}
-	p2 := &store.Preset{
+	p2 := &model.Session{
 		Name: "other", Cwd: "/work/y",
-		Windows: []store.PresetWindow{
-			{Name: "ed", Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Name: "sh", Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
-			{Name: "files", Panes: []store.PresetPane{{Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Name: "ed", Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Name: "sh", Layout: "even-vertical", Panes: []model.Pane{{}, {}}},
+			{Name: "files", Panes: []model.Pane{{Cmd: "yazi"}}},
 		},
 	}
-	if _, _, err := FreezeSave(st, store.SessionToModel(p2), true); err != nil {
+	if _, _, err := FreezeSave(st, p2, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -74,11 +75,11 @@ func TestObserveForksLearnsFromFreeze(t *testing.T) {
 		t.Fatalf("yazi hits %d", st.ForkHits(yk))
 	}
 	// divergence: new agent window -> new fork key
-	p3 := &store.Preset{
+	p3 := &model.Session{
 		Name: "z", Cwd: "/z",
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Panes: []store.PresetPane{{Cmd: "opencode"}}},
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Panes: []model.Pane{{Cmd: "opencode"}}},
 		},
 	}
 	ObserveForks(st, p3)

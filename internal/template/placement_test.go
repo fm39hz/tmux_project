@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 )
 
@@ -17,14 +18,14 @@ func TestPatternFromPresetUmbrella(t *testing.T) {
 		_ = os.MkdirAll(d, 0o755)
 		_ = os.MkdirAll(filepath.Join(d, ".git"), 0o755)
 	}
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "kho-cong", Cwd: root,
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cwd: root}}},
-			{Panes: []store.PresetPane{
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cwd: root}}},
+			{Panes: []model.Pane{
 				{Cwd: c0}, {Cwd: c0}, {Cwd: c1}, {Cwd: c1},
 			}},
-			{Panes: []store.PresetPane{{Cwd: root}}},
+			{Panes: []model.Pane{{Cwd: root}}},
 		},
 	}
 	pat := PatternFromPreset(p)
@@ -33,10 +34,10 @@ func TestPatternFromPresetUmbrella(t *testing.T) {
 		t.Fatalf("got %q want %q", pat, want)
 	}
 	// all root -> empty
-	flat := &store.Preset{
+	flat := &model.Session{
 		Cwd: root,
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cwd: root}}},
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cwd: root}}},
 		},
 	}
 	if PatternFromPreset(flat) != "" {
@@ -60,16 +61,16 @@ func TestObserveAndBakePlacement(t *testing.T) {
 	for _, d := range []string{c0a, c1a} {
 		_ = os.MkdirAll(filepath.Join(d, ".git"), 0o755)
 	}
-	inst := &store.Preset{
+	inst := &model.Session{
 		Name: "ua", Cwd: rootA,
-		Windows: []store.PresetWindow{
-			{Name: "ed", Panes: []store.PresetPane{{Cwd: rootA, Cmd: "nvim"}}},
-			{Name: "sh", Layout: "tiled", Panes: []store.PresetPane{
+		Windows: []model.Window{
+			{Name: "ed", Panes: []model.Pane{{Cwd: rootA, Cmd: "nvim"}}},
+			{Name: "sh", Layout: "tiled", Panes: []model.Pane{
 				{Cwd: c0a}, {Cwd: c1a},
 			}},
 		},
 	}
-	sid, _, err := FreezeSave(st, store.SessionToModel(inst), true)
+	sid, _, err := FreezeSave(st, inst, true)
 	if err != nil {
 		t.Fatal(err)
 	}

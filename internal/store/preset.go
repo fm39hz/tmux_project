@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
 )
 
@@ -45,12 +46,14 @@ func (s *Store) ListMeta() ([]PresetMeta, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) Get(name string) (*Preset, error) {
-	var p Preset
-	err := s.db.QueryRow(`SELECT name, cwd FROM session WHERE name = ?`, name).Scan(&p.Name, &p.Cwd)
+func (s *Store) Get(name string) (*model.Session, error) {
+	var sessName, cwd string
+	err := s.db.QueryRow(`SELECT name, cwd FROM session WHERE name = ?`, name).Scan(&sessName, &cwd)
 	if err != nil {
 		return nil, err
 	}
+	sess := &model.Session{Name: sessName, Cwd: cwd}
+
 	type winRow struct {
 		id     int64
 		idx    int
@@ -81,7 +84,7 @@ func (s *Store) Get(name string) (*Preset, error) {
 	wrows.Close()
 
 	for _, wr := range wins {
-		w := PresetWindow{Idx: wr.idx, Name: wr.name, Cwd: wr.cwd, Layout: wr.layout}
+		w := model.Window{Idx: wr.idx, Name: wr.name, Cwd: wr.cwd, Layout: wr.layout}
 		prows, err := s.db.Query(
 			`SELECT idx, COALESCE(cwd,''), COALESCE(cmd,'') FROM pane WHERE window_id = ? ORDER BY idx`,
 			wr.id,
@@ -90,7 +93,7 @@ func (s *Store) Get(name string) (*Preset, error) {
 			return nil, err
 		}
 		for prows.Next() {
-			var pn PresetPane
+			var pn model.Pane
 			if err := prows.Scan(&pn.Idx, &pn.Cwd, &pn.Cmd); err != nil {
 				prows.Close()
 				return nil, err
@@ -102,24 +105,24 @@ func (s *Store) Get(name string) (*Preset, error) {
 		if err != nil {
 			return nil, err
 		}
-		p.Windows = append(p.Windows, w)
+		sess.Windows = append(sess.Windows, w)
 	}
-	return &p, nil
+	return sess, nil
 }
 
-func (s *Store) Save(p *Preset) error {
-	if p == nil {
+func (s *Store) Save(sess *model.Session) error {
+	if sess == nil {
 		return fmt.Errorf("nil preset")
 	}
-	if !project.ValidSessionName(p.Name) {
-		return fmt.Errorf("invalid session name %q", p.Name)
+	if !project.ValidSessionName(sess.Name) {
+		return fmt.Errorf("invalid session name %q", sess.Name)
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := savePresetTx(tx, p); err != nil {
+	if err := savePresetTx(tx, sess); err != nil {
 		return err
 	}
 	return tx.Commit()

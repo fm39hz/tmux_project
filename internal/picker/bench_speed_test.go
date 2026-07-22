@@ -131,7 +131,7 @@ func BenchmarkLoadPresetDetached(b *testing.B) {
 		p.Name = "tp-bench-load"
 		_ = ctl.Kill(context.Background(), p.Name)
 		b.StartTimer()
-		if err := ctl.Load(context.Background(), store.SessionToModel(&p)); err != nil {
+		if err := ctl.Load(context.Background(), &p); err != nil {
 			b.Fatal(err)
 		}
 		b.StopTimer()

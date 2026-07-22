@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/project"
 	"github.com/fm39hz/gotomux/internal/store"
 	"github.com/fm39hz/gotomux/internal/tmux"
@@ -68,7 +69,7 @@ func (w windowJSON) splitValue() string {
 // Format writes compact JSON for edit/hand-edit.
 // Omits cwd when it equals session root (or empty for pure shapes).
 // Window split uses product key "split" (not tmux's "layout").
-func Format(p *store.Preset) string {
+func Format(p *model.Session) string {
 	root := p.Cwd
 	j := presetJSON{}
 	if isShapeID(p.Name) || (p.Cwd == "" && looksLikeShapeTree(p)) {
@@ -97,7 +98,7 @@ func Format(p *store.Preset) string {
 		}
 		panes := w.Panes
 		if len(panes) == 0 {
-			panes = []store.PresetPane{{}}
+			panes = []model.Pane{{}}
 		}
 		for _, pn := range panes {
 			pj := paneJSON{Cmd: pn.Cmd}
@@ -119,7 +120,7 @@ func Format(p *store.Preset) string {
 	return string(b) + "\n"
 }
 
-func Parse(text string) (*store.Preset, error) {
+func Parse(text string) (*model.Session, error) {
 	var j presetJSON
 	if err := json.Unmarshal([]byte(text), &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
@@ -142,7 +143,7 @@ func Parse(text string) (*store.Preset, error) {
 	if len(j.Windows) == 0 {
 		return nil, fmt.Errorf("need at least one window")
 	}
-	p := &store.Preset{Name: name, Cwd: j.Cwd}
+	p := &model.Session{Name: name, Cwd: j.Cwd}
 	for i, w := range j.Windows {
 		nPanes := len(w.Panes)
 		if nPanes == 0 {
@@ -157,7 +158,7 @@ func Parse(text string) (*store.Preset, error) {
 				return nil, fmt.Errorf("window %d: split %q (even-horizontal|even-vertical|main-*|tiled or omit)", i, split)
 			}
 		}
-		pw := store.PresetWindow{
+		pw := model.Window{
 			Idx:    i,
 			Name:   w.Name,
 			Cwd:    w.Cwd,
@@ -168,7 +169,7 @@ func Parse(text string) (*store.Preset, error) {
 			if cwd == "" {
 				cwd = p.Cwd
 			}
-			pw.Panes = []store.PresetPane{{Cwd: cwd}}
+			pw.Panes = []model.Pane{{Cwd: cwd}}
 		} else {
 			for k, pn := range w.Panes {
 				cwd := pn.Cwd
@@ -178,7 +179,7 @@ func Parse(text string) (*store.Preset, error) {
 				if cwd == "" {
 					cwd = p.Cwd
 				}
-				pw.Panes = append(pw.Panes, store.PresetPane{Idx: k, Cwd: cwd, Cmd: pn.Cmd})
+				pw.Panes = append(pw.Panes, model.Pane{Idx: k, Cwd: cwd, Cmd: pn.Cmd})
 			}
 		}
 		if pw.Cwd == "" && len(pw.Panes) > 0 {
@@ -194,7 +195,7 @@ func isShapeID(s string) bool {
 	return s == "default" || strings.HasPrefix(s, "shape-")
 }
 
-func looksLikeShapeTree(p *store.Preset) bool {
+func looksLikeShapeTree(p *model.Session) bool {
 	if p == nil || p.Cwd != "" {
 		return false
 	}
@@ -212,7 +213,7 @@ func looksLikeShapeTree(p *store.Preset) bool {
 }
 
 // CommitEdit saves preset and, on rename, deletes old name + rebinds ranking telemetry.
-func CommitEdit(st store.Storer, oldName string, np *store.Preset) error {
+func CommitEdit(st store.Storer, oldName string, np *model.Session) error {
 	if st == nil || np == nil {
 		return fmt.Errorf("commit edit: nil store or preset")
 	}
@@ -229,7 +230,7 @@ func CommitEdit(st store.Storer, oldName string, np *store.Preset) error {
 // Edit opens preset JSON in $EDITOR (or nvim).
 // For tmux binds: use display-popup so the editor has a TTY; -e defaults to current session in main.
 func Edit(st store.Storer, name string, pick func([]string) (string, error)) error {
-	var p *store.Preset
+	var p *model.Session
 	var err error
 	if name != "" {
 		p, err = st.Get(name)

@@ -308,7 +308,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+t": // sticky <- shape from selection; Create/Zox use it
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
-				var p *store.Preset
+				var p *mod.Session
 				var err error
 				switch it.Kind {
 				case KindPreset:
@@ -317,7 +317,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					var s *mod.Session
 					s, err = m.ctl.Freeze(context.Background(), it.Name)
 					if err == nil {
-						p = store.ModelToSession(s)
+						p = s
 					}
 				default:
 					if err := template.ResetActive(m.store); err != nil {

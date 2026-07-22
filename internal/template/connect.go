@@ -18,7 +18,7 @@ func SetEventBus(b *event.Bus) {
 		b.On(event.FreezeDone, func(ctx context.Context, args ...any) {
 			st := args[0].(store.Storer)
 			shapeID := args[1].(string)
-			p := args[2].(*store.Preset)
+			p := args[2].(*model.Session)
 			mirrorAfter(st, shapeID)
 			observeAfterShape(st, shapeID, p)
 		})
@@ -56,7 +56,7 @@ func StickyLabel(st store.Storer) string {
 	return ShapeLabel(p)
 }
 
-func LoadActive(st store.Storer) (*store.Preset, string, error) {
+func LoadActive(st store.Storer) (*model.Session, string, error) {
 	if st == nil {
 		return builtinDefault(), "default", nil
 	}
@@ -95,7 +95,7 @@ func ensureDefault(st store.Storer) error {
 	return nil
 }
 
-func emitShapeEvent(ctx context.Context, st store.Storer, shapeID string, p *store.Preset) {
+func emitShapeEvent(ctx context.Context, st store.Storer, shapeID string, p *model.Session) {
 	if globalBus != nil {
 		globalBus.Emit(ctx, event.FreezeDone, st, shapeID, p)
 	} else {
@@ -104,7 +104,7 @@ func emitShapeEvent(ctx context.Context, st store.Storer, shapeID string, p *sto
 	}
 }
 
-func StickFrom(st store.Storer, p *store.Preset) (id string, created bool, err error) {
+func StickFrom(st store.Storer, p *model.Session) (id string, created bool, err error) {
 	if st == nil {
 		return "", false, fmt.Errorf("stick: nil store")
 	}
@@ -121,7 +121,7 @@ func StickFrom(st store.Storer, p *store.Preset) (id string, created bool, err e
 	return outID, created, nil
 }
 
-func RememberShape(st store.Storer, p *store.Preset) (id string, created bool, err error) {
+func RememberShape(st store.Storer, p *model.Session) (id string, created bool, err error) {
 	if st == nil || p == nil {
 		return "", false, nil
 	}
@@ -139,14 +139,13 @@ func FreezeSave(st store.Storer, s *model.Session, setSticky bool) (shapeID stri
 	if st == nil || s == nil {
 		return "", false, fmt.Errorf("freeze save: nil store or preset")
 	}
-	p := store.ModelToSession(s)
 	ensureShapesReady(st)
-	id, key, body := shapeBody(p, false)
-	shapeID, shapeCreated, err = st.SaveFreeze(p, id, key, body, setSticky)
+	id, key, body := shapeBody(s, false)
+	shapeID, shapeCreated, err = st.SaveFreeze(s, id, key, body, setSticky)
 	if err != nil {
 		return "", false, fmt.Errorf("freeze save: %w", err)
 	}
-	emitShapeEvent(context.Background(), st, shapeID, p)
+	emitShapeEvent(context.Background(), st, shapeID, s)
 	return shapeID, shapeCreated, nil
 }
 
@@ -178,7 +177,7 @@ func ResetActive(st store.Storer) error {
 	return nil
 }
 
-func Apply(tmpl *store.Preset, name, root string) *store.Preset {
+func Apply(tmpl *model.Session, name, root string) *model.Session {
 	return bakeShape(nil, tmpl, name, root, "")
 }
 
@@ -198,7 +197,7 @@ func ConnectProject(ctl tmux.Connector, st store.Storer, name, cwd string) error
 	if st != nil {
 		if p, err := st.Get(name); err == nil {
 			_ = st.Touch(name)
-			if err := ctl.ConnectPreset(context.Background(), store.SessionToModel(p)); err != nil {
+			if err := ctl.ConnectPreset(context.Background(), p); err != nil {
 				return fmt.Errorf("load preset %q: %w", name, err)
 			}
 			return nil
@@ -209,7 +208,7 @@ func ConnectProject(ctl tmux.Connector, st store.Storer, name, cwd string) error
 		return fmt.Errorf("load sticky shape: %w", err)
 	}
 	baked := bakeShape(st, tmpl, name, cwd, sid)
-	if err := ctl.ConnectPreset(context.Background(), store.SessionToModel(baked)); err != nil {
+	if err := ctl.ConnectPreset(context.Background(), baked); err != nil {
 		return fmt.Errorf("bake sticky %q as %q: %w", sid, name, err)
 	}
 	return nil

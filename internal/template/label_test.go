@@ -4,16 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fm39hz/gotomux/internal/store"
+	"github.com/fm39hz/gotomux/internal/model"
 )
 
 func TestShapeLabelFromEssence(t *testing.T) {
-	p := ToShape(&store.Preset{
+	p := ToShape(&model.Session{
 		Name: "sess", Cwd: "/work/x",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Name: "shell", Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
-			{Name: "yazi", Panes: []store.PresetPane{{Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Name: "shell", Layout: "even-vertical", Panes: []model.Pane{{}, {}}},
+			{Name: "yazi", Panes: []model.Pane{{Cmd: "yazi"}}},
 		},
 	}, "shape-abc")
 	lab := ShapeLabel(p)
@@ -32,10 +32,10 @@ func TestShapeLabelDefault(t *testing.T) {
 }
 
 func TestFormatEmitsIDAndLabel(t *testing.T) {
-	p := ToShape(&store.Preset{
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cmd: "nvim"}}},
-			{Layout: "tiled", Panes: []store.PresetPane{{}, {}, {}, {}}},
+	p := ToShape(&model.Session{
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cmd: "nvim"}}},
+			{Layout: "tiled", Panes: []model.Pane{{}, {}, {}, {}}},
 		},
 	}, "shape-deadbeefdeadbeef")
 	p.Name = "shape-deadbeefdeadbeef"

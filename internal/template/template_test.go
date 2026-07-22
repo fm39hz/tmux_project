@@ -7,19 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fm39hz/gotomux/internal/model"
 	"github.com/fm39hz/gotomux/internal/store"
 )
 
 func TestToShapeEssence(t *testing.T) {
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "fantasia", Cwd: "/work/Fantasia",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/Fantasia", Cmd: "nvim"}}},
-			{Name: "test", Layout: "4080,158x35,0,0[158x17,0,0,1,158x17,0,18,2]", Panes: []store.PresetPane{
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cwd: "/work/Fantasia", Cmd: "nvim"}}},
+			{Name: "test", Layout: "4080,158x35,0,0[158x17,0,0,1,158x17,0,18,2]", Panes: []model.Pane{
 				{Cwd: "/work/Fantasia/test", Cmd: "go test"},
 				{Cwd: "/work/Fantasia/pkg"},
 			}},
-			{Name: "files", Panes: []store.PresetPane{{Cmd: "yazi"}}},
+			{Name: "files", Panes: []model.Pane{{Cmd: "yazi"}}},
 		},
 	}
 	sh := ToShape(p, "x")
@@ -46,28 +47,28 @@ func TestToShapeEssence(t *testing.T) {
 
 func TestShapeKeyIgnoresPathsKeepsTools(t *testing.T) {
 	// same topology+tools, different paths/names -> same key
-	a := ToShape(&store.Preset{
+	a := ToShape(&model.Session{
 		Name: "proj-a", Cwd: "/work/a",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Cwd: "/work/a", Panes: []store.PresetPane{{Cwd: "/work/a", Cmd: "nvim"}}},
-			{Name: "shell", Panes: []store.PresetPane{{Cwd: "/work/a/apps"}, {Cwd: "/work/a"}}},
+		Windows: []model.Window{
+			{Name: "editor", Cwd: "/work/a", Panes: []model.Pane{{Cwd: "/work/a", Cmd: "nvim"}}},
+			{Name: "shell", Panes: []model.Pane{{Cwd: "/work/a/apps"}, {Cwd: "/work/a"}}},
 		},
 	}, "x")
-	b := ToShape(&store.Preset{
+	b := ToShape(&model.Session{
 		Name: "proj-b", Cwd: "/other/b",
-		Windows: []store.PresetWindow{
-			{Name: "code", Cwd: "/other/b", Panes: []store.PresetPane{{Cwd: "/other/b/src", Cmd: "nvim"}}},
-			{Name: "term", Panes: []store.PresetPane{{Cwd: "/other/b"}, {Cwd: "/tmp"}}},
+		Windows: []model.Window{
+			{Name: "code", Cwd: "/other/b", Panes: []model.Pane{{Cwd: "/other/b/src", Cmd: "nvim"}}},
+			{Name: "term", Panes: []model.Pane{{Cwd: "/other/b"}, {Cwd: "/tmp"}}},
 		},
 	}, "y")
 	if ShapeKey(a) != ShapeKey(b) {
 		t.Fatalf("paths must not affect key: %s vs %s", ShapeKey(a), ShapeKey(b))
 	}
 	// different tool intent -> different key
-	c := ToShape(&store.Preset{
-		Windows: []store.PresetWindow{
-			{Panes: []store.PresetPane{{Cmd: "vim"}}},
-			{Panes: []store.PresetPane{{}, {}}},
+	c := ToShape(&model.Session{
+		Windows: []model.Window{
+			{Panes: []model.Pane{{Cmd: "vim"}}},
+			{Panes: []model.Pane{{}, {}}},
 		},
 	}, "z")
 	if ShapeKey(a) == ShapeKey(c) {
@@ -76,10 +77,10 @@ func TestShapeKeyIgnoresPathsKeepsTools(t *testing.T) {
 }
 
 func TestApplyUsesRootAndTools(t *testing.T) {
-	sh := ToShape(&store.Preset{
+	sh := ToShape(&model.Session{
 		Cwd: "/old",
-		Windows: []store.PresetWindow{
-			{Name: "e", Cwd: "/old/sub", Panes: []store.PresetPane{{Cwd: "/old/sub", Cmd: "nvim"}, {Cwd: "/old", Cmd: "yazi"}}},
+		Windows: []model.Window{
+			{Name: "e", Cwd: "/old/sub", Panes: []model.Pane{{Cwd: "/old/sub", Cmd: "nvim"}, {Cwd: "/old", Cmd: "yazi"}}},
 		},
 	}, "s")
 	got := Apply(sh, "newproj", "/work/new")
@@ -109,12 +110,12 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 	}
 	defer st.Close()
 
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "proj1", Cwd: "/work/a",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/a", Cmd: "nvim"}}},
-			{Name: "shell", Panes: []store.PresetPane{{Cwd: "/work/a"}}},
-			{Name: "logs", Panes: []store.PresetPane{{Cwd: "/work/a/logs"}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cwd: "/work/a", Cmd: "nvim"}}},
+			{Name: "shell", Panes: []model.Pane{{Cwd: "/work/a"}}},
+			{Name: "logs", Panes: []model.Pane{{Cwd: "/work/a/logs"}}},
 		},
 	}
 	id1, created1, err := StickFrom(st, p)
@@ -140,12 +141,12 @@ func TestStickMirrorAndDedupe(t *testing.T) {
 		t.Fatalf("missing config mirror containing id %s in %v", id1, ents0)
 	}
 	// same shape different project
-	p2 := &store.Preset{
+	p2 := &model.Session{
 		Name: "proj2", Cwd: "/work/b",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{Cwd: "/work/b", Cmd: "nvim"}}},
-			{Name: "shell", Panes: []store.PresetPane{{Cwd: "/work/b"}}},
-			{Name: "logs", Panes: []store.PresetPane{{Cwd: "/work/b/logs"}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{Cwd: "/work/b", Cmd: "nvim"}}},
+			{Name: "shell", Panes: []model.Pane{{Cwd: "/work/b"}}},
+			{Name: "logs", Panes: []model.Pane{{Cwd: "/work/b/logs"}}},
 		},
 	}
 	id2, created2, err := StickFrom(st, p2)
@@ -194,11 +195,11 @@ func TestConfigHandEditWinsByMtime(t *testing.T) {
 	defer st.Close()
 
 	// create shape via freeze path
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "s", Cwd: "/r",
-		Windows: []store.PresetWindow{
-			{Name: "main", Panes: []store.PresetPane{{}}},
-			{Name: "aux", Panes: []store.PresetPane{{Cwd: "x"}}},
+		Windows: []model.Window{
+			{Name: "main", Panes: []model.Pane{{}}},
+			{Name: "aux", Panes: []model.Pane{{Cwd: "x"}}},
 		},
 	}
 	id, _, err := RememberShape(st, p)
@@ -220,12 +221,12 @@ func TestConfigHandEditWinsByMtime(t *testing.T) {
 		path = filepath.Join(dir, "cfg", "gotomux", "shapes", "hand--test.json")
 	}
 	// hand-edit: add third window role name change in topology
-	hand := &store.Preset{
+	hand := &model.Session{
 		Name: id,
-		Windows: []store.PresetWindow{
-			{Name: "main", Panes: []store.PresetPane{{}}},
-			{Name: "aux", Panes: []store.PresetPane{{Cwd: "x"}}},
-			{Name: "extra", Panes: []store.PresetPane{{}}},
+		Windows: []model.Window{
+			{Name: "main", Panes: []model.Pane{{}}},
+			{Name: "aux", Panes: []model.Pane{{Cwd: "x"}}},
+			{Name: "extra", Panes: []model.Pane{{}}},
 		},
 	}
 	body := Format(ToShape(hand, id))
@@ -256,12 +257,12 @@ func TestConfigHandEditWinsByMtime(t *testing.T) {
 }
 
 func TestFormatOmitsDupCwd(t *testing.T) {
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "gotomux",
 		Cwd:  "/home/u/gotomux",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Cwd: "/home/u/gotomux", Panes: []store.PresetPane{{Cwd: "/home/u/gotomux", Cmd: "nvim"}}},
-			{Name: "shell", Cwd: "/home/u/gotomux", Panes: []store.PresetPane{{Cwd: "/home/u/gotomux"}}},
+		Windows: []model.Window{
+			{Name: "editor", Cwd: "/home/u/gotomux", Panes: []model.Pane{{Cwd: "/home/u/gotomux", Cmd: "nvim"}}},
+			{Name: "shell", Cwd: "/home/u/gotomux", Panes: []model.Pane{{Cwd: "/home/u/gotomux"}}},
 		},
 	}
 	out := Format(p)
@@ -279,11 +280,11 @@ func TestFormatOmitsDupCwd(t *testing.T) {
 }
 
 func TestToShapeStripsPathWindowNames(t *testing.T) {
-	p := &store.Preset{
+	p := &model.Session{
 		Name: "sess", Cwd: "/home/u/proj",
-		Windows: []store.PresetWindow{
-			{Name: "editor", Panes: []store.PresetPane{{}}},
-			{Name: "/home/u/.cache/", Panes: []store.PresetPane{{Cmd: "claude"}}},
+		Windows: []model.Window{
+			{Name: "editor", Panes: []model.Pane{{}}},
+			{Name: "/home/u/.cache/", Panes: []model.Pane{{Cmd: "claude"}}},
 		},
 	}
 	sh := ToShape(p, "x")
@@ -305,11 +306,11 @@ func TestToShapeStripsPathWindowNames(t *testing.T) {
 }
 
 func TestShapeIDOpaque(t *testing.T) {
-	p := &store.Preset{
+	p := &model.Session{
 		Cwd: "/home/leaky/user/proj",
-		Windows: []store.PresetWindow{
-			{Name: "/home/leaky/user/.cache/", Panes: []store.PresetPane{{Cmd: "claude"}}},
-			{Name: "shell", Panes: []store.PresetPane{{}}},
+		Windows: []model.Window{
+			{Name: "/home/leaky/user/.cache/", Panes: []model.Pane{{Cmd: "claude"}}},
+			{Name: "shell", Panes: []model.Pane{{}}},
 		},
 	}
 	sh := ToShape(p, "tmp")
@@ -331,14 +332,14 @@ func TestShapeIDOpaque(t *testing.T) {
 }
 
 func TestWindowChromeFromTools(t *testing.T) {
-	sh := ToShape(&store.Preset{
+	sh := ToShape(&model.Session{
 		Name: "proj", Cwd: "/work/proj",
-		Windows: []store.PresetWindow{
-			{Name: "proj", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // session-like name -> editor via tool
-			{Name: "cong", Panes: []store.PresetPane{{Cmd: "nvim"}}},          // branch label -> editor via tool
-			{Name: "whatever", Layout: "even-vertical", Panes: []store.PresetPane{{}, {}}},
-			{Name: "/home/x/.cache/", Panes: []store.PresetPane{{Cmd: "yazi"}}},
-			{Name: "opencode", Panes: []store.PresetPane{{Cmd: "opencode"}}},
+		Windows: []model.Window{
+			{Name: "proj", Panes: []model.Pane{{Cmd: "nvim"}}},          // session-like name -> editor via tool
+			{Name: "cong", Panes: []model.Pane{{Cmd: "nvim"}}},          // branch label -> editor via tool
+			{Name: "whatever", Layout: "even-vertical", Panes: []model.Pane{{}, {}}},
+			{Name: "/home/x/.cache/", Panes: []model.Pane{{Cmd: "yazi"}}},
+			{Name: "opencode", Panes: []model.Pane{{Cmd: "opencode"}}},
 		},
 	}, "s")
 	want := []string{"editor", "editor", "shell", "files", "opencode"}
