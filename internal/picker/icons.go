@@ -25,13 +25,7 @@ func useNerdIcons() bool {
 }
 
 func iconPrompt() string {
-	if useNerdIcons() {
-		if ic := toolclass.NerdIcon("shell"); ic != "" {
-			return ic + " "
-		}
-		return "> "
-	}
-	return "> "
+	return ": " // simple consistent prefix
 }
 
 func iconCursor() string {

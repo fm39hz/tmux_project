@@ -521,8 +521,8 @@ func (m model) FrameLines() int {
 	if maxShow <= 0 {
 		maxShow = 12
 	}
-	// filter+meta line + list + status
-	return maxShow + 2
+	// prompt line + header + list + status
+	return maxShow + 3
 }
 
 type editDoneMsg struct {
@@ -609,11 +609,11 @@ func trimLastWord(s string) string {
 func (m model) View() tea.View {
 	var b strings.Builder
 
-	// Filter line: nerd prompt when available, else ASCII "> " (not shell-like).
-	// Shell chrome stays above; we only own the inline block below the real prompt.
+	// First line: continuation prompt + query (giống gõ ở shell prompt).
 	b.WriteString(styleDim.Render(iconPrompt()))
 	b.WriteString(m.query)
-	// count + sticky + keys on same line as filter
+	b.WriteByte('\n')
+	// Second line: header với count + meta + keys.
 	meta := fmt.Sprintf("  %d/%d", len(m.view), m.totalCount())
 	if m.help {
 		meta += "  ^n/p | enter | ^t sticky | ^x kill | ^f freeze | ^e edit | ^d del | ^u/^w | esc"
