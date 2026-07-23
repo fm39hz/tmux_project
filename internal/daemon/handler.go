@@ -221,7 +221,7 @@ func (d *Daemon) handleFreeze(name string) error {
 
 func (d *Daemon) buildListResponse() Response {
 	var sessions []tmux.LiveSession
-	if raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"); err == nil {
+	if raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", tmux.ListSessFmt, ";", "list-panes", "-s", "-F", tmux.ListPanesFmt); err == nil {
 		sessions = tmux.ParseLiveOutput(raw)
 	}
 

@@ -120,8 +120,8 @@ func tmuxRun(ctx context.Context, args ...string) error {
 	return nil
 }
 
-const listSessFmt = "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}"
-const listPanesFmt = "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"
+const ListSessFmt = "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}"
+const ListPanesFmt = "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}"
 
 type LiveSession struct {
 	Name         string
@@ -136,9 +136,9 @@ type LiveSession struct {
 
 func (c *Ctl) ListLive(ctx context.Context) ([]LiveSession, error) {
 	out, err := exec.CommandContext(ctx, "tmux",
-		"list-sessions", "-F", listSessFmt,
+		"list-sessions", "-F", ListSessFmt,
 		";",
-		"list-panes", "-s", "-F", listPanesFmt,
+		"list-panes", "-s", "-F", ListPanesFmt,
 	).Output()
 	if err != nil {
 		if IsNoServerError(err) {

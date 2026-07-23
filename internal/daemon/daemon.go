@@ -134,8 +134,10 @@ func (d *Daemon) ensureSocket() {
 	}
 }
 
+var listArgs = []string{"list-sessions", "-F", tmux.ListSessFmt, ";", "list-panes", "-s", "-F", tmux.ListPanesFmt}
+
 func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
-	raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
+	raw, err := d.cc.Send(context.Background(), listArgs...)
 	if err == nil {
 		return tmux.ParseLiveOutput(raw)
 	}
@@ -146,7 +148,7 @@ func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
 		return nil
 	}
 	log.Printf("[cc] [INFO] reconnected")
-	raw, err = d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
+	raw, err = d.cc.Send(context.Background(), listArgs...)
 	if err != nil {
 		d.ccErrs.Add(1)
 		log.Printf("[cc] [ERROR] after reconnect: %v", err)
