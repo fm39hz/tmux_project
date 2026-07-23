@@ -103,7 +103,7 @@ func runPickerIPC(cfg *config.Config, conn net.Conn) error {
 	enc, dec := json.NewEncoder(conn), json.NewDecoder(conn)
 	enc.Encode(daemon.Request{Cmd: "list"})
 	var resp daemon.Response
-	if err := dec.Decode(&resp); err != nil || !resp.OK {
+	if err := decodeWithTimeout(dec, &resp); err != nil || !resp.OK {
 		return runPickerStandalone(cfg)
 	}
 
@@ -150,11 +150,9 @@ func runPickerIPC(cfg *config.Config, conn net.Conn) error {
 	}
 	it := res.Item
 
-	// Notify daemon BEFORE connecting so telemetry is recorded immediately,
-	// not 10s later on the next poll cycle.
 	enc.Encode(daemon.Request{Cmd: "connect", Name: it.Name})
 	var ack daemon.Response
-	dec.Decode(&ack)
+	decodeWithTimeout(dec, &ack)
 
 	switch it.Kind {
 	case picker.KindActive:
@@ -167,6 +165,22 @@ func runPickerIPC(cfg *config.Config, conn net.Conn) error {
 		return ctl.ConnectPreset(ctx, p)
 	default:
 		return template.ConnectProject(ctl, st, it.Name, it.Path)
+	}
+}
+
+// decodeWithTimeout reads one JSON value with a 2-second timeout.
+// On timeout or error, returns an error so callers fall back to standalone.
+func decodeWithTimeout(dec *json.Decoder, v any) error {
+	type res struct{ err error }
+	ch := make(chan res, 1)
+	go func() {
+		ch <- res{dec.Decode(v)}
+	}()
+	select {
+	case r := <-ch:
+		return r.err
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("IPC response timeout")
 	}
 }
 
@@ -231,13 +245,12 @@ func connectItem(ctl tmux.Connector, st store.Storer, it picker.Item) error {
 }
 
 func freezeCLI(cfg *config.Config, name string) error {
-	// Try IPC first — daemon freeze uses its own tmux + store, 0 fork.
 	if conn, err := net.DialTimeout("unix", daemonSocket(), 50*time.Millisecond); err == nil {
 		defer conn.Close()
 		enc, dec := json.NewEncoder(conn), json.NewDecoder(conn)
 		enc.Encode(daemon.Request{Cmd: "list"})
 		var listResp daemon.Response
-		if err := dec.Decode(&listResp); err == nil && listResp.OK {
+		if err := decodeWithTimeout(dec, &listResp); err == nil && listResp.OK {
 			if name == "" {
 				if listResp.CtxSess != "" {
 					name = listResp.CtxSess
@@ -255,7 +268,7 @@ func freezeCLI(cfg *config.Config, name string) error {
 			if name != "" {
 				enc.Encode(daemon.Request{Cmd: "freeze", Name: name})
 				var fr daemon.Response
-				dec.Decode(&fr)
+				decodeWithTimeout(dec, &fr)
 				if fr.OK {
 					fmt.Printf("froze %s\n", name)
 					return nil

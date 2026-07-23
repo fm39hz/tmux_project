@@ -85,37 +85,40 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		return
 	}
+	enc := json.NewEncoder(conn)
 	switch req.Cmd {
 	case "ping":
-		json.NewEncoder(conn).Encode(Response{OK: true})
+		enc.Encode(Response{OK: true})
 	case "list":
 		v := d.stateVersion.Load()
 		if req.Version == v {
-			json.NewEncoder(conn).Encode(Response{OK: true, Version: v})
+			enc.Encode(Response{OK: true, Version: v})
 			return
 		}
 		resp := d.buildListResponse()
 		resp.Version = v
-		json.NewEncoder(conn).Encode(resp)
+		enc.Encode(resp)
 	case "connect":
 		d.handleConnect(req.Name)
-		json.NewEncoder(conn).Encode(Response{OK: true})
+		enc.Encode(Response{OK: true})
 	case "freeze":
-		err := d.handleFreeze(req.Name)
-		if err != nil {
-			json.NewEncoder(conn).Encode(Response{OK: false, Error: err.Error()})
+		if err := d.handleFreeze(req.Name); err != nil {
+			enc.Encode(Response{OK: false, Error: err.Error()})
 			return
 		}
-		json.NewEncoder(conn).Encode(Response{OK: true})
+		enc.Encode(Response{OK: true})
 	}
 }
 
 func (d *Daemon) handleConnect(name string) {
-	if name == "" || d.st == nil {
+	d.stMu.Lock()
+	st := d.st
+	d.stMu.Unlock()
+	if name == "" || st == nil {
 		return
 	}
 	log.Printf("connect: %s", name)
-	d.st.RecordOpen(name)
+	st.RecordOpen(name)
 	sessions := d.listLiveViaControl()
 	if sessions != nil {
 		others := make([]string, 0, len(sessions))
@@ -125,10 +128,12 @@ func (d *Daemon) handleConnect(name string) {
 			}
 		}
 		if len(others) > 0 {
-			d.st.RecordPairsWithLive(name, others)
+			st.RecordPairsWithLive(name, others)
 		}
 	}
+	d.lastSeenMu.Lock()
 	d.lastSeen[name] = time.Now().Unix()
+	d.lastSeenMu.Unlock()
 	d.stateVersion.Add(1)
 }
 

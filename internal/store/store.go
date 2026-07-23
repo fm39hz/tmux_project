@@ -204,6 +204,14 @@ func copyFile(src, dst string) error {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// Ping checks the DB connection is alive.
+func (s *Store) Ping() error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store: nil db")
+	}
+	return s.db.Ping()
+}
+
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
 PRAGMA foreign_keys = ON;

@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -19,13 +20,20 @@ type Daemon struct {
 	cc           *tmux.ControlConn
 	ctl          *tmux.Ctl
 	st           *store.Store
+	stPath       string
+	stMu         sync.Mutex
 	cfg          *config.Config
 	lastSeen     map[string]int64
+	lastSeenMu   sync.Mutex
 	stateVersion atomic.Int64
 
 	cachedPairs map[string]int64
 	cachedUsage map[string]store.Usage
 	cacheMu     sync.RWMutex
+
+	stopCh  chan struct{}
+	sockPath string
+	wg       sync.WaitGroup
 }
 
 func New(cfg *config.Config) (*Daemon, error) {
@@ -41,19 +49,40 @@ func New(cfg *config.Config) (*Daemon, error) {
 		cc.Close()
 		return nil, err
 	}
+	stDir := cfg.ResolveDataDir()
+	if err := os.MkdirAll(stDir, 0o755); err != nil {
+		cc.Close()
+		return nil, err
+	}
+	stPath := filepath.Join(stDir, "state.db")
 	st, err := store.OpenWithConfig(cfg)
 	if err != nil {
 		cc.Close()
 		return nil, err
 	}
-	d := &Daemon{cc: cc, ctl: ctl, st: st, cfg: cfg, lastSeen: map[string]int64{}}
+
+	sockDir := os.Getenv("XDG_DATA_HOME")
+	if sockDir == "" {
+		home, _ := os.UserHomeDir()
+		sockDir = filepath.Join(home, ".local", "share")
+	}
+	sockPath := filepath.Join(sockDir, "gotomux", "gotomux.sock")
+
+	d := &Daemon{
+		cc: cc, ctl: ctl, st: st, stPath: stPath, cfg: cfg,
+		lastSeen: map[string]int64{}, sockPath: sockPath,
+		stopCh: make(chan struct{}),
+	}
 	d.syncZoxide()
 	d.syncNow()
+	d.wg.Add(1)
 	go d.pollLoop()
 	return d, nil
 }
 
 func (d *Daemon) Close() {
+	close(d.stopCh)
+	d.wg.Wait()
 	if d.st != nil {
 		d.st.Close()
 	}
@@ -62,17 +91,43 @@ func (d *Daemon) Close() {
 	}
 }
 
+// ensureDB checks the store is alive and reopens it if the file was replaced.
+func (d *Daemon) ensureDB() {
+	d.stMu.Lock()
+	defer d.stMu.Unlock()
+	if d.st == nil {
+		return
+	}
+	if err := d.st.Ping(); err != nil {
+		log.Printf("store ping failed: %v — reopening", err)
+		d.st.Close()
+		if st, err := store.OpenWithConfig(d.cfg); err == nil {
+			d.st = st
+			log.Printf("store reopened")
+		} else {
+			log.Printf("store reopen failed: %v", err)
+			d.st = nil
+		}
+	}
+}
+
+func (d *Daemon) ensureSocket() {
+	if _, err := os.Stat(d.sockPath); err != nil {
+		log.Printf("socket missing at %s — daemon will not accept new connections", d.sockPath)
+	}
+}
+
 func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
 	raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
 	if err == nil {
 		return tmux.ParseLiveOutput(raw)
 	}
-	log.Printf("listLiveViaControl: %v — attempting reconnect", err)
+	log.Printf("listLiveViaControl: %v — reconnecting", err)
 	if rerr := d.cc.Reconnect(); rerr != nil {
 		log.Printf("reconnect failed: %v", rerr)
 		return nil
 	}
-	log.Printf("reconnected to tmux -C")
+	log.Printf("reconnected")
 	raw, err = d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
 	if err != nil {
 		log.Printf("listLiveViaControl after reconnect: %v", err)
@@ -84,9 +139,12 @@ func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
 func (d *Daemon) syncNow() {
 	sessions := d.listLiveViaControl()
 	if sessions == nil {
+		d.ensureDB()
 		return
 	}
 	changed := false
+
+	d.lastSeenMu.Lock()
 	for _, s := range sessions {
 		if prev, ok := d.lastSeen[s.Name]; !ok || s.LastAttached > prev {
 			d.recordTelemetry(s.Name, sessions)
@@ -107,10 +165,11 @@ func (d *Daemon) syncNow() {
 			changed = true
 		}
 	}
+	d.lastSeenMu.Unlock()
 
-	// Precompute pairs + usage for fast IPC response
 	ctxSess := d.ctl.CurrentSession(context.Background())
 	d.cacheMu.Lock()
+	d.stMu.Lock()
 	if ctxSess != "" && d.st != nil {
 		d.cachedPairs, _ = d.st.PairScores(ctxSess, time.Now().Unix())
 	} else {
@@ -121,6 +180,7 @@ func (d *Daemon) syncNow() {
 	} else {
 		d.cachedUsage = nil
 	}
+	d.stMu.Unlock()
 	d.cacheMu.Unlock()
 
 	if changed {
@@ -129,11 +189,14 @@ func (d *Daemon) syncNow() {
 }
 
 func (d *Daemon) recordTelemetry(name string, all []tmux.LiveSession) {
-	if d.st == nil {
+	d.stMu.Lock()
+	st := d.st
+	d.stMu.Unlock()
+	if st == nil {
 		return
 	}
 	log.Printf("telemetry: %s", name)
-	d.st.RecordOpen(name)
+	st.RecordOpen(name)
 	others := make([]string, 0, len(all))
 	for _, s := range all {
 		if s.Name != name {
@@ -141,14 +204,15 @@ func (d *Daemon) recordTelemetry(name string, all []tmux.LiveSession) {
 		}
 	}
 	if len(others) > 0 {
-		d.st.RecordPairsWithLive(name, others)
+		st.RecordPairsWithLive(name, others)
 	}
 }
 
-// syncZoxide runs zoxide query -l and caches results in the zox table.
-// Best-effort; no error returned (cache stays stale if zoxide is missing).
 func (d *Daemon) syncZoxide() {
-	if d.st == nil {
+	d.stMu.Lock()
+	st := d.st
+	d.stMu.Unlock()
+	if st == nil {
 		return
 	}
 	out, err := exec.Command("zoxide", "query", "-l").Output()
@@ -172,18 +236,27 @@ func (d *Daemon) syncZoxide() {
 		})
 	}
 	if len(rows) > 0 {
-		d.st.SaveZox(rows)
+		st.SaveZox(rows)
 	}
 }
 
 func (d *Daemon) pollLoop() {
+	defer d.wg.Done()
 	interval := 10 * time.Second
 	if d.cfg != nil {
 		interval = d.cfg.PollInterval
 	}
 	d.syncZoxide()
 	for {
-		time.Sleep(interval)
-		d.syncNow()
+		select {
+		case <-d.stopCh:
+			return
+		case <-time.After(interval):
+			d.ensureDB()
+			d.ensureSocket()
+			d.syncNow()
+		}
 	}
 }
+
+
