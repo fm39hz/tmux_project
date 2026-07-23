@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -220,17 +219,9 @@ func (d *Daemon) handleFreeze(name string) error {
 }
 
 func (d *Daemon) buildListResponse() Response {
-	var sessions []tmux.LiveSession
-	if raw, err := d.cc.Send(context.Background(), "list-sessions", "-F", tmux.ListSessFmt, ";", "list-panes", "-s", "-F", tmux.ListPanesFmt); err == nil {
-		sessions = tmux.ParseLiveOutput(raw)
-	}
-
-	var presets []store.PresetMeta
-	if d.st != nil {
-		presets, _ = d.st.ListMeta()
-	}
-
 	d.cacheMu.RLock()
+	sessions := d.cachedSessions
+	presets := d.cachedPresets
 	ctxSess, ctxPath := d.ctxSess, d.ctxPath
 	pairs := d.cachedPairs
 	usage := d.cachedUsage

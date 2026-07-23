@@ -27,11 +27,13 @@ type Daemon struct {
 	lastSeenMu   sync.Mutex
 	stateVersion atomic.Int64
 
-	cachedPairs map[string]int64
-	cachedUsage map[string]store.Usage
-	ctxSess     string
-	ctxPath     string
-	cacheMu     sync.RWMutex
+	cachedSessions []tmux.LiveSession
+	cachedPresets  []store.PresetMeta
+	cachedPairs    map[string]int64
+	cachedUsage    map[string]store.Usage
+	ctxSess        string
+	ctxPath        string
+	cacheMu        sync.RWMutex
 
 	stopCh  chan struct{}
 	sockPath string
@@ -191,6 +193,7 @@ func (d *Daemon) syncNow() {
 	sess, path := d.ctl.CurrentContext(context.Background())
 	d.cacheMu.Lock()
 	d.ctxSess, d.ctxPath = sess, path
+	d.cachedSessions = sessions
 	d.stMu.Lock()
 	if sess != "" && d.st != nil {
 		d.cachedPairs, _ = d.st.PairScores(sess, time.Now().Unix())
@@ -199,8 +202,12 @@ func (d *Daemon) syncNow() {
 	}
 	if d.st != nil {
 		d.cachedUsage, _ = d.st.AllUsage()
+		if pm, err := d.st.ListMeta(); err == nil {
+			d.cachedPresets = pm
+		}
 	} else {
 		d.cachedUsage = nil
+		d.cachedPresets = nil
 	}
 	d.stMu.Unlock()
 	d.cacheMu.Unlock()
