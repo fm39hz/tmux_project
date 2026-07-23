@@ -34,18 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare AUR files
+      - name: Prepare AUR PKGBUILD
         run: |
           tagver="${GITHUB_REF_NAME#v}"
-          sed -i "s/^pkgver=.*/pkgver=${tagver}  # set by CI/" dist/PKGBUILD-aur
-          cp dist/PKGBUILD-aur PKGBUILD
-          cp dist/gotomux.install gotomux.install
-          rm -f dist/src/gotomux/PKGBUILD
+          sed -i "s/^pkgver=.*/pkgver=${tagver}/" PKGBUILD.aur
+          echo "=== PKGBUILD (pkgver=${tagver}) ==="
+          grep ^pkgver PKGBUILD.aur
       - name: Push to AUR
-        uses: KSXGitHub/github-actions-deploy-aur@v3
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
         with:
           pkgname: gotomux
-          pkgbuild: dist/PKGBUILD-aur
+          pkgbuild: PKGBUILD.aur
           test: true
           test_flags: --clean --cleanbuild --syncdeps --noconfirm --needed
           commit_username: ${{ secrets.AUR_USERNAME }}
