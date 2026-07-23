@@ -170,14 +170,16 @@ Same formula everywhere, environment only changes inputs:
 ## Roadmap
 
 Local first.
+⚠️ WARNING: gotomux is still in early development stages. Some unintended behavior might occur.
+If you encounter any issue, please report it so I may fix it.
 
 - [x] Sources: create / tmux / preset / zoxide
 - [x] Freeze / load, sticky shapes, placement + fork learning
 - [x] Shape labels, config reconcile, product JSON (`split` / tools)
 - [x] `go install` / CI / local Arch package
 - [x] AUR release
-- [ ] Remote tmux as one pool (`tmux@host`; server: tmux + ssh only)
 - [ ] Polish everyday use until boring
+- [ ] Remote tmux as one pool (`tmux@host`; server: tmux + ssh only)
 
 ## Dev
 
