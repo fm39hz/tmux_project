@@ -92,5 +92,5 @@ func formatStickyMeta(label string) string {
 	for i, p := range parts {
 		parts[i] = iconForTool(p)
 	}
-	return "  " + iconSticky() + strings.Join(parts, "+")
+	return "  " + iconSticky() + strings.Join(parts, " +")
 }
