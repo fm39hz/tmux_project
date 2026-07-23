@@ -31,6 +31,14 @@ type Response struct {
 	CtxPath string              `json:"ctx_path,omitempty"`
 	Pairs   map[string]int64    `json:"pairs,omitempty"`
 	Usage   map[string]store.Usage `json:"usage,omitempty"`
+
+	// status response fields
+	StatusCC     bool  `json:"status_cc,omitempty"`
+	StatusStore  bool  `json:"status_store,omitempty"`
+	CCErrs       int64 `json:"cc_errs,omitempty"`
+	CCTimeouts   int64 `json:"cc_timeouts,omitempty"`
+	StoreErrs    int64 `json:"store_errs,omitempty"`
+	Uptime       int64 `json:"uptime,omitempty"`
 }
 
 // listenWithGuard binds the Unix socket with stale-socket detection.
@@ -83,12 +91,16 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	defer conn.Close()
 	var req Request
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
+		log.Printf("[ipc] [WARN] decode request: %v", err)
+		json.NewEncoder(conn).Encode(Response{OK: false, Error: "bad request"})
 		return
 	}
 	enc := json.NewEncoder(conn)
 	switch req.Cmd {
 	case "ping":
 		enc.Encode(Response{OK: true})
+	case "status":
+		enc.Encode(d.buildStatusResponse())
 	case "list":
 		v := d.stateVersion.Load()
 		if req.Version == v {
@@ -110,6 +122,23 @@ func (d *Daemon) handleConn(conn net.Conn) {
 	}
 }
 
+func (d *Daemon) buildStatusResponse() Response {
+	stOK := false
+	d.stMu.Lock()
+	if d.st != nil {
+		stOK = d.st.Ping() == nil
+	}
+	d.stMu.Unlock()
+	ccOK := d.cc != nil
+
+	return Response{
+		OK: true,
+		StatusCC: ccOK, StatusStore: stOK,
+		CCErrs: d.ccErrs.Load(), StoreErrs: d.storeErrs.Load(),
+		Uptime: int64(time.Since(d.startedAt).Seconds()),
+	}
+}
+
 func (d *Daemon) handleConnect(name string) {
 	d.stMu.Lock()
 	st := d.st
@@ -117,7 +146,7 @@ func (d *Daemon) handleConnect(name string) {
 	if name == "" || st == nil {
 		return
 	}
-	log.Printf("connect: %s", name)
+	log.Printf("[store] [INFO] connect: %s", name)
 	st.RecordOpen(name)
 	sessions := d.listLiveViaControl()
 	if sessions != nil {

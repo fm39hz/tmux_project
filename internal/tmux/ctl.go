@@ -117,11 +117,14 @@ type LiveSession struct {
 }
 
 func (c *Ctl) ListLive(ctx context.Context) ([]LiveSession, error) {
-	out, _ := exec.CommandContext(ctx, "tmux",
+	out, err := exec.CommandContext(ctx, "tmux",
 		"list-sessions", "-F", listSessFmt,
 		";",
 		"list-panes", "-s", "-F", listPanesFmt,
 	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("tmux list: %w", err)
+	}
 	return ParseLiveOutput(string(out)), nil
 }
 

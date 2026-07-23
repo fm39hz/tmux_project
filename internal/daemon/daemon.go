@@ -34,6 +34,12 @@ type Daemon struct {
 	stopCh  chan struct{}
 	sockPath string
 	wg       sync.WaitGroup
+
+	// error governance
+	storeErrs  atomic.Int64
+	ccErrs     atomic.Int64
+	ccTimeouts atomic.Int64
+	startedAt  time.Time
 }
 
 func New(cfg *config.Config) (*Daemon, error) {
@@ -71,7 +77,7 @@ func New(cfg *config.Config) (*Daemon, error) {
 	d := &Daemon{
 		cc: cc, ctl: ctl, st: st, stPath: stPath, cfg: cfg,
 		lastSeen: map[string]int64{}, sockPath: sockPath,
-		stopCh: make(chan struct{}),
+		stopCh: make(chan struct{}), startedAt: time.Now(),
 	}
 	d.syncZoxide()
 	d.syncNow()
@@ -91,7 +97,6 @@ func (d *Daemon) Close() {
 	}
 }
 
-// ensureDB checks the store is alive and reopens it if the file was replaced.
 func (d *Daemon) ensureDB() {
 	d.stMu.Lock()
 	defer d.stMu.Unlock()
@@ -99,13 +104,14 @@ func (d *Daemon) ensureDB() {
 		return
 	}
 	if err := d.st.Ping(); err != nil {
-		log.Printf("store ping failed: %v — reopening", err)
+		d.storeErrs.Add(1)
+		log.Printf("[store] [ERROR] ping: %v — reopening", err)
 		d.st.Close()
 		if st, err := store.OpenWithConfig(d.cfg); err == nil {
 			d.st = st
-			log.Printf("store reopened")
+			log.Printf("[store] [INFO] reopened")
 		} else {
-			log.Printf("store reopen failed: %v", err)
+			log.Printf("[store] [ERROR] reopen: %v", err)
 			d.st = nil
 		}
 	}
@@ -113,7 +119,7 @@ func (d *Daemon) ensureDB() {
 
 func (d *Daemon) ensureSocket() {
 	if _, err := os.Stat(d.sockPath); err != nil {
-		log.Printf("socket missing at %s — daemon will not accept new connections", d.sockPath)
+		log.Printf("[ipc] [WARN] socket %s missing — CLI will fallback to standalone", d.sockPath)
 	}
 }
 
@@ -122,15 +128,17 @@ func (d *Daemon) listLiveViaControl() []tmux.LiveSession {
 	if err == nil {
 		return tmux.ParseLiveOutput(raw)
 	}
-	log.Printf("listLiveViaControl: %v — reconnecting", err)
+	d.ccErrs.Add(1)
+	log.Printf("[cc] [ERROR] send: %v — reconnecting", err)
 	if rerr := d.cc.Reconnect(); rerr != nil {
-		log.Printf("reconnect failed: %v", rerr)
+		log.Printf("[cc] [ERROR] reconnect: %v", rerr)
 		return nil
 	}
-	log.Printf("reconnected")
+	log.Printf("[cc] [INFO] reconnected")
 	raw, err = d.cc.Send(context.Background(), "list-sessions", "-F", "S\t#{session_name}\t#{session_windows}\t#{session_path}\t#{session_last_attached}\t#{session_activity}\t#{session_created}\t#{session_attached}", ";", "list-panes", "-s", "-F", "P\t#{session_name}\t#{pane_current_command}\t#{?pane_active,1,0}\t#{?pane_dead,1,0}")
 	if err != nil {
-		log.Printf("listLiveViaControl after reconnect: %v", err)
+		d.ccErrs.Add(1)
+		log.Printf("[cc] [ERROR] after reconnect: %v", err)
 		return nil
 	}
 	return tmux.ParseLiveOutput(raw)
@@ -195,7 +203,7 @@ func (d *Daemon) recordTelemetry(name string, all []tmux.LiveSession) {
 	if st == nil {
 		return
 	}
-	log.Printf("telemetry: %s", name)
+	log.Printf("[store] [INFO] telemetry: %s", name)
 	st.RecordOpen(name)
 	others := make([]string, 0, len(all))
 	for _, s := range all {

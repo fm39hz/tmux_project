@@ -333,7 +333,7 @@ func editCLI(cfg *config.Config, name string) error {
 	}
 	if _, err := st.Get(name); err != nil {
 		if ctlErr != nil {
-			return fmt.Errorf("preset %q not found and tmux unavailable: %v", name, ctlErr)
+			return fmt.Errorf("preset %q not found and tmux unavailable: %w", name, ctlErr)
 		}
 		stop := picker.HoldInterrupt()
 		_, _, err = template.FreezeRemember(ctl, st, name)
