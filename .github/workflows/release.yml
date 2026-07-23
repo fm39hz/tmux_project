@@ -34,6 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stamp version into PKGBUILD
+        run: |
+          tagver="${GITHUB_REF_NAME#v}"
+          sed -i "s/^pkgver=.*/pkgver=${tagver}  # set by CI/" dist/PKGBUILD-aur
+
       - name: Push to AUR
         uses: KSXGitHub/github-actions-deploy-aur@v3
         with:

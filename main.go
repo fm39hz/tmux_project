@@ -40,6 +40,9 @@ func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "-v", "--version":
+			fmt.Println(version)
+			return
 		case "-f", "--freeze":
 			name := ""
 			if len(os.Args) > 2 && !strings.HasPrefix(os.Args[2], "-") {
