@@ -3,25 +3,26 @@ package picker
 import (
 	"fmt"
 	"strings"
-	"unicode"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
 type pickModel struct {
-	all    []string
-	view   []string
-	cursor int
-	query  string
-	name   string
-	quit   bool
+	all        []string
+	view       []string
+	cursor     int
+	queryInput textinput.Model
+	name       string
+	quit       bool
 }
 
 func Pick(names []string) (string, error) {
 	if len(names) == 1 {
 		return names[0], nil
 	}
-	m := pickModel{all: names}
+	m := pickModel{all: names, queryInput: initInput()}
 	m.refilter()
 	p := tea.NewProgram(m, tea.WithoutSignalHandler())
 	final, err := RunCancellable(p)
@@ -37,7 +38,7 @@ func Pick(names []string) (string, error) {
 }
 
 func (m *pickModel) refilter() {
-	q := strings.ToLower(strings.TrimSpace(m.query))
+	q := strings.ToLower(strings.TrimSpace(m.queryInput.Value()))
 	m.view = m.view[:0]
 	for _, n := range m.all {
 		if q == "" || fuzzyMatch(q, strings.ToLower(n)) {
@@ -52,59 +53,58 @@ func (m *pickModel) refilter() {
 	}
 }
 
-func (m pickModel) Init() tea.Cmd { return nil }
+func (m pickModel) Init() tea.Cmd {
+	return textinput.Blink
+}
 
 func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c", "esc":
+		switch {
+		case key.Matches(msg, pickKeys.Quit):
 			m.quit = true
 			return m, tea.Quit
-		case "enter":
+		case key.Matches(msg, pickKeys.Confirm):
 			if len(m.view) > 0 {
 				m.name = m.view[m.cursor]
 				return m, tea.Quit
 			}
-		case "ctrl+n", "down":
-			if len(m.view) > 0 {
-				m.cursor = (m.cursor + 1) % len(m.view)
-			}
-		case "ctrl+p", "up":
+			return m, nil
+		case key.Matches(msg, pickKeys.Up):
 			if len(m.view) > 0 {
 				m.cursor--
 				if m.cursor < 0 {
 					m.cursor = len(m.view) - 1
 				}
 			}
-		case "backspace":
-			if len(m.query) > 0 {
-				r := []rune(m.query)
-				m.query = string(r[:len(r)-1])
-				m.refilter()
+			return m, nil
+		case key.Matches(msg, pickKeys.Down):
+			if len(m.view) > 0 {
+				m.cursor = (m.cursor + 1) % len(m.view)
 			}
-		default:
-			if isModifierChord(msg) {
-				return m, nil
-			}
-			if text := msg.Key().Text; text != "" {
-				for _, r := range text {
-					if unicode.IsPrint(r) {
-						m.query += string(r)
-					}
-				}
-				m.refilter()
-			}
+			return m, nil
+		}
+
+		// Unhandled key: pass to textinput
+		if msg.Key().Mod != 0 && msg.Key().Mod != tea.ModShift {
+			return m, nil
 		}
 	}
-	return m, nil
+
+	prev := m.queryInput.Value()
+	var cmd tea.Cmd
+	m.queryInput, cmd = m.queryInput.Update(msg)
+	if m.queryInput.Value() != prev {
+		m.refilter()
+	}
+	return m, cmd
 }
 
 func (m pickModel) View() tea.View {
 	var b strings.Builder
-	b.WriteString(m.query)
+	b.WriteString(m.queryInput.View())
 	b.WriteString("\n")
-	b.WriteString(styleHeader.Render("  freeze session  ctrl-n/p | enter | esc"))
+	b.WriteString(styleHeader.Render("  freeze session  ^n/p | enter | esc"))
 	b.WriteString("\n")
 	for i, n := range m.view {
 		line := n

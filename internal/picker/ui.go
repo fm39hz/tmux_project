@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
@@ -36,19 +38,20 @@ type Result struct {
 
 // viewModel — UI state, tách biệt khỏi business logic.
 type viewModel struct {
-	items    []Item
-	cursor   int
-	selID    ID
-	query    string
-	status   string
-	done     Result
-	width    int
-	height   int
-	maxShow  int
-	help     bool
-	started  time.Time
-	editPath string
-	editOld  string
+	items      []Item
+	cursor     int
+	selID      ID
+	queryInput textinput.Model
+	status     string
+	done       Result
+	width      int
+	height     int
+	maxShow    int
+	helpOpen   bool
+	helpModel  help.Model
+	started    time.Time
+	editPath   string
+	editOld    string
 }
 
 func (v *viewModel) scrollOff() int {
@@ -149,6 +152,14 @@ func gitConc(cfg *config.Config) int {
 	return 12
 }
 
+func initInput() textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.Placeholder = ""
+	ti.Focus()
+	return ti
+}
+
 func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer, createName, createCwd string, sessions []tmux.LiveSession, presets []store.PresetMeta, env Context) model {
 	cache := &sourceCache{
 		zoxSt:    st,
@@ -174,7 +185,12 @@ func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer,
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
-		ui: viewModel{maxShow: maxShow(cfg), started: time.Now()},
+		ui: viewModel{
+			queryInput: initInput(),
+			helpModel:  help.New(),
+			maxShow:    maxShow(cfg),
+			started:    time.Now(),
+		},
 	}
 	m.refilter()
 	return m
@@ -202,7 +218,12 @@ func NewModel(cfg *config.Config, ctl tmux.Connector, store store.Storer, create
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
-		ui: viewModel{maxShow: maxShow(cfg), started: time.Now()},
+		ui: viewModel{
+			queryInput: initInput(),
+			helpModel:  help.New(),
+			maxShow:    maxShow(cfg),
+			started:    time.Now(),
+		},
 	}
 	m.refilter()
 	return m
@@ -211,7 +232,7 @@ func NewModel(cfg *config.Config, ctl tmux.Connector, store store.Storer, create
 
 
 func (m *model) pool() []Item {
-	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.ui.query))
+	return flattenSources(m.sources, m.bySrc, strings.TrimSpace(m.ui.queryInput.Value()))
 }
 
 func (m *model) mergeSource(src Source, items []Item) {
@@ -225,7 +246,7 @@ func (m *model) mergeSource(src Source, items []Item) {
 
 func (m *model) refilter() {
 	// Preserve scroll offset so visual position doesn't jump on kill/delete.
-	q := strings.ToLower(strings.TrimSpace(m.ui.query))
+	q := strings.ToLower(strings.TrimSpace(m.ui.queryInput.Value()))
 	m.ui.items = rankItems(q, m.pool())
 
 	if m.ui.cursor >= len(m.ui.items) {
@@ -261,10 +282,8 @@ func (m *model) totalCount() int {
 
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
+	cmds = append(cmds, textinput.Blink)
 	cmds = append(cmds, refreshCmds(m.sources)...)
-	if len(cmds) == 0 {
-		return nil
-	}
 	return tea.Batch(cmds...)
 }
 
@@ -280,32 +299,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.ui.width, m.ui.height = msg.Width, msg.Height
-		// inline mode: keep list short like fzf --height
 		if m.ui.maxShow <= 0 {
 			m.ui.maxShow = 12
 		}
-		return m, nil
+		m.ui.helpModel.SetWidth(msg.Width)
 
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			m.ui.done = Result{Action: ActionQuit}
-			return m, tea.Quit
-
-		case "esc":
-			// display-popup + bind -n M-* : releasing Alt often injects ESC into the
-			// new pane and would quit instantly. Ignore brief false ESC after open.
-			if time.Since(m.ui.started) < 500*time.Millisecond {
+		switch {
+		case key.Matches(msg, defaultKeyMap.Quit):
+			if msg.String() == "esc" && time.Since(m.ui.started) < 500*time.Millisecond {
 				return m, nil
 			}
 			m.ui.done = Result{Action: ActionQuit}
 			return m, tea.Quit
 
-		case "?":
-			m.ui.help = !m.ui.help
+		case key.Matches(msg, defaultKeyMap.Help):
+			m.ui.helpOpen = !m.ui.helpOpen
 			return m, nil
 
-		case "ctrl+t": // sticky <- shape from selection; Create/Zox use it
+		case key.Matches(msg, defaultKeyMap.Confirm):
+			if len(m.ui.items) > 0 && m.ui.cursor < len(m.ui.items) {
+				m.ui.done = Result{Action: ActionConnect, Item: m.ui.items[m.ui.cursor]}
+				m.ui.queryInput.SetValue("")
+				m.ui.items = m.ui.items[:0]
+				return m, tea.Quit
+			}
+			return m, nil
+
+		case key.Matches(msg, defaultKeyMap.Up):
+			if len(m.ui.items) > 0 {
+				m.ui.cursor--
+				if m.ui.cursor < 0 {
+					m.ui.cursor = len(m.ui.items) - 1
+				}
+				m.ui.selID = m.ui.items[m.ui.cursor].ID()
+			}
+			return m, nil
+
+		case key.Matches(msg, defaultKeyMap.Down):
+			if len(m.ui.items) > 0 {
+				m.ui.cursor = (m.ui.cursor + 1) % len(m.ui.items)
+				m.ui.selID = m.ui.items[m.ui.cursor].ID()
+			}
+			return m, nil
+
+		case key.Matches(msg, defaultKeyMap.Sticky):
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				var p *mod.Session
@@ -356,51 +394,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "enter":
-			if len(m.ui.items) > 0 && m.ui.cursor < len(m.ui.items) {
-				m.ui.done = Result{Action: ActionConnect, Item: m.ui.items[m.ui.cursor]}
-				m.ui.query = ""
-				m.ui.items = m.ui.items[:0]
-				return m, tea.Quit
-			}
-
-		case "ctrl+n", "down":
-			if len(m.ui.items) > 0 {
-				m.ui.cursor = (m.ui.cursor + 1) % len(m.ui.items)
-				m.ui.selID = m.ui.items[m.ui.cursor].ID()
-			}
-			return m, nil
-
-		case "ctrl+p", "up":
-			if len(m.ui.items) > 0 {
-				m.ui.cursor--
-				if m.ui.cursor < 0 {
-					m.ui.cursor = len(m.ui.items) - 1
-				}
-				m.ui.selID = m.ui.items[m.ui.cursor].ID()
-			}
-			return m, nil
-
-		case "ctrl+u":
-			m.ui.query = ""
-			m.refilterFromQuery()
-			return m, nil
-
-		case "ctrl+w":
-			m.ui.query = trimLastWord(m.ui.query)
-			m.refilterFromQuery()
-			return m, nil
-
-		case "backspace":
-			if len(m.ui.query) > 0 {
-				// drop last rune
-				r := []rune(m.ui.query)
-				m.ui.query = string(r[:len(r)-1])
-				m.refilterFromQuery()
-			}
-			return m, nil
-
-		case "ctrl+x": // kill active
+		case key.Matches(msg, defaultKeyMap.Kill):
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				if it.Kind == KindActive {
@@ -418,7 +412,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+f": // freeze instance+shape; sticky stays intentional (^t)
+		case key.Matches(msg, defaultKeyMap.Freeze):
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				name := it.Name
@@ -445,7 +439,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+e": // edit preset (Active: freeze to preset first)
+		case key.Matches(msg, defaultKeyMap.Edit):
 			if len(m.ui.items) == 0 {
 				return m, nil
 			}
@@ -479,7 +473,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "ctrl+d": // delete preset
+		case key.Matches(msg, defaultKeyMap.Delete):
 			if len(m.ui.items) > 0 {
 				it := m.ui.items[m.ui.cursor]
 				if it.Kind == KindPreset {
@@ -493,25 +487,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
 
-		default:
-			// unmapped ctrl/alt chords: ignore (don't leak into query)
-			if isModifierChord(msg) {
-				return m, nil
-			}
-			// plain printable -> filter
-			if text := msg.Key().Text; text != "" {
-				for _, r := range text {
-					if unicode.IsPrint(r) {
-						m.ui.query += string(r)
-					}
-				}
-				m.refilterFromQuery()
-			}
+		// Modifier chords: don't pass to textinput (prevent alt+key insertion)
+		if msg.Key().Mod != 0 && msg.Key().Mod != tea.ModShift {
+			return m, nil
 		}
 
 	case editDoneMsg:
-		// editor left junk below; wipe so repaint is single frame
 		ClearInline(m.FrameLines())
 		if msg.err != nil {
 			m.ui.status = msg.err.Error()
@@ -522,7 +505,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	return m, nil
+
+	// Pass remaining messages to textinput (BlinkMsg, WindowSizeMsg, unhandled KeyPressMsg, etc.)
+	prev := m.ui.queryInput.Value()
+	var cmd tea.Cmd
+	m.ui.queryInput, cmd = m.ui.queryInput.Update(msg)
+	if m.ui.queryInput.Value() != prev {
+		m.refilterFromQuery()
+	}
+	return m, cmd
 }
 
 func (m *model) reload() {
@@ -625,26 +616,16 @@ func editorCmd(path string) *exec.Cmd {
 	return exec.Command(ed, path)
 }
 
-func trimLastWord(s string) string {
-	s = strings.TrimRightFunc(s, unicode.IsSpace)
-	i := strings.LastIndexFunc(s, unicode.IsSpace)
-	if i < 0 {
-		return ""
-	}
-	return s[:i+1]
-}
-
 func (m model) View() tea.View {
 	var b strings.Builder
 
-	// First line: continuation prompt + query (giống gõ ở shell prompt).
 	b.WriteString(styleDim.Render(iconPrompt()))
-	b.WriteString(m.ui.query)
+	b.WriteString(m.ui.queryInput.View())
 	b.WriteByte('\n')
-	// Second line: header với count + meta + keys.
+
 	meta := fmt.Sprintf("  %d/%d", len(m.ui.items), m.totalCount())
-	if m.ui.help {
-		meta += "  ^n/p | enter | ^t sticky | ^x kill | ^f freeze | ^e edit | ^d del | ^u/^w | esc"
+	if m.ui.helpOpen {
+		meta += "  " + m.ui.helpModel.ShortHelpView(defaultKeyMap.ShortHelp())
 	} else if m.tmpl != "" && m.tmpl != "default" {
 		meta += formatStickyMeta(m.tmpl) + "  enter | esc | ?"
 	} else {
@@ -708,13 +689,11 @@ func (m model) View() tea.View {
 			shown++
 		}
 	}
-	// pad to fixed height so filter shrink doesn't leave ghost lines
 	for shown < maxShow {
 		b.WriteByte('\n')
 		shown++
 	}
 
-	// status always occupies 1 line - fixed frame height for clearInline
 	if m.ui.status != "" {
 		b.WriteString(styleStatus.Render(m.ui.status))
 	}
