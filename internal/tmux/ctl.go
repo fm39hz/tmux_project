@@ -80,6 +80,24 @@ func InferSplit(layout string, nPanes int) string {
 	return "even-horizontal"
 }
 
+// IsNoServerError checks if a tmux error means the server isn't running.
+// Callers can distinguish "no server" (cold start) from real failures.
+func IsNoServerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "no server running"):
+		return true
+	case strings.Contains(msg, "error connecting to") &&
+		strings.Contains(msg, "no such file or directory"):
+		return true
+	default:
+		return false
+	}
+}
+
 type Ctl struct{}
 
 func New() (*Ctl, error) {
@@ -123,6 +141,9 @@ func (c *Ctl) ListLive(ctx context.Context) ([]LiveSession, error) {
 		"list-panes", "-s", "-F", listPanesFmt,
 	).Output()
 	if err != nil {
+		if IsNoServerError(err) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("tmux list: %w", err)
 	}
 	return ParseLiveOutput(string(out)), nil

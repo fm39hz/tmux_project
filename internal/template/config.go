@@ -60,6 +60,16 @@ func shapeFilePath(id, label string) string {
 	return filepath.Join(dir, lab+"--"+suf+".json")
 }
 
+// writeFileAtomic writes data to path via a temp file + rename.
+// Prevents partial writes if the process crashes mid-write.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func writeConfigMirror(id, body string) {
 	if id == "" || body == "" {
 		return
@@ -70,7 +80,7 @@ func writeConfigMirror(id, body string) {
 		return
 	}
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	_ = os.WriteFile(path, []byte(body), 0o644)
+	_ = writeFileAtomic(path, []byte(body), 0o644)
 }
 
 func shapeLabelFromBody(id, body string) string {
@@ -118,7 +128,7 @@ func reconcileConfigShapes(st store.Storer) {
 		if path == "" {
 			continue
 		}
-		_ = os.WriteFile(path, []byte(body), 0o644)
+		_ = writeFileAtomic(path, []byte(body), 0o644)
 		keep[filepath.Base(path)] = true
 	}
 	ents, err := os.ReadDir(dir)

@@ -43,8 +43,7 @@ type Daemon struct {
 }
 
 func New(cfg *config.Config) (*Daemon, error) {
-	exec.Command("tmux", "start-server").Run()
-	exec.Command("tmux", "set-option", "-g", "exit-empty", "off").Run()
+	ensureServer()
 
 	cc, err := tmux.StartControl()
 	if err != nil {
@@ -94,6 +93,16 @@ func (d *Daemon) Close() {
 	}
 	if d.cc != nil {
 		d.cc.Close()
+	}
+}
+
+// ensureServer starts tmux if not running and sets exit-empty off.
+func ensureServer() {
+	if err := exec.Command("tmux", "start-server").Run(); err != nil {
+		log.Printf("[cc] [WARN] start-server: %v", err)
+	}
+	if err := exec.Command("tmux", "set-option", "-g", "exit-empty", "off").Run(); err != nil {
+		log.Printf("[cc] [WARN] set exit-empty: %v", err)
 	}
 }
 
@@ -260,6 +269,7 @@ func (d *Daemon) pollLoop() {
 		case <-d.stopCh:
 			return
 		case <-time.After(interval):
+			ensureServer()
 			d.ensureDB()
 			d.ensureSocket()
 			d.syncNow()

@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/fm39hz/gotomux/internal/store"
@@ -63,6 +65,36 @@ func listenWithGuard(sock string) (net.Listener, error) {
 	return l, nil
 }
 
+// acquireLock uses flock to prevent multiple daemon instances.
+// Lock auto-releases when the process exits (no stale cleanup needed).
+func acquireLock(sockPath string) (func(), error) {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		runtimeDir = os.TempDir()
+	}
+	_ = os.MkdirAll(runtimeDir, 0o750)
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("gotomux-" + sockPath))
+	lockPath := filepath.Join(runtimeDir, fmt.Sprintf("gotomux-%x.lock", h.Sum64()))
+
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open lock: %w", err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("daemon already running (lock %s)", lockPath)
+	}
+
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+		_ = os.Remove(lockPath)
+	}, nil
+}
+
 // ServeIPC listens on Unix socket and handles IPC requests.
 func ServeIPC(d *Daemon) error {
 	dir := os.Getenv("XDG_DATA_HOME")
@@ -71,6 +103,12 @@ func ServeIPC(d *Daemon) error {
 		dir = filepath.Join(home, ".local", "share")
 	}
 	sock := filepath.Join(dir, "gotomux", "gotomux.sock")
+
+	unlock, err := acquireLock(sock)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	l, err := listenWithGuard(sock)
 	if err != nil {
