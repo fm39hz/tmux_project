@@ -618,6 +618,9 @@ func editorCmd(path string) *exec.Cmd {
 
 func (m model) View() tea.View {
 	if m.ui.done.Action != ActionNone {
+		if m.ui.done.Action != ActionConnect {
+			return tea.View{}
+		}
 		var b strings.Builder
 		b.WriteString(m.ui.done.Item.Title)
 		b.WriteByte('\n')

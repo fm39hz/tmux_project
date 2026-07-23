@@ -100,6 +100,15 @@ func (m pickModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m pickModel) View() tea.View {
+	if m.quit {
+		return tea.View{}
+	}
+	if m.name != "" {
+		var b strings.Builder
+		b.WriteString(m.name)
+		b.WriteByte('\n')
+		return tea.NewView(b.String())
+	}
 	var b strings.Builder
 	b.WriteString(m.queryInput.View())
 	b.WriteString("\n")
