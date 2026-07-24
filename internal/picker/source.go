@@ -137,7 +137,7 @@ type presetSource struct {
 
 func (s *presetSource) Snapshot() []Item {
 	var meta []store.PresetMeta
-	if s.cache.presetOK.Load() {
+	if s.cache.presetOK.Load() && len(s.cache.presetM) > 0 {
 		meta = s.cache.presetM
 	} else if s.store != nil {
 		var err error
