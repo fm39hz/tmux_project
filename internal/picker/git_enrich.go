@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 var gitBranchCache sync.Map // path → string ("" = not a git repo, "master | worktree" for linked worktree)
@@ -68,6 +69,7 @@ func parseBranch(head string) string {
 }
 
 // readGitBranch checks cache first, then opens the repo to detect branch.
+// Times out after 200ms per path to prevent hangs on slow filesystems.
 func readGitBranch(path string) string {
 	if path == "" {
 		return ""
@@ -75,9 +77,16 @@ func readGitBranch(path string) string {
 	if v, ok := gitBranchCache.Load(path); ok {
 		return v.(string)
 	}
-	label := detectLabel(path)
-	gitBranchCache.Store(path, label)
-	return label
+	ch := make(chan string, 1)
+	go func() { ch <- detectLabel(path) }()
+	select {
+	case label := <-ch:
+		gitBranchCache.Store(path, label)
+		return label
+	case <-time.After(200 * time.Millisecond):
+		gitBranchCache.Store(path, "")
+		return ""
+	}
 }
 
 // enrichAllSync fills the git branch cache for all unique paths in bySrc,

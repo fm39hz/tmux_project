@@ -127,7 +127,7 @@ func runPickerIPC(cfg *config.Config, conn net.Conn) error {
 		Pairs: resp.Pairs, Usage: resp.Usage, Now: time.Now().Unix(),
 	}
 
-	m := picker.NewModelFromDaemon(cfg, ctl, st, name, root, resp.Sessions, resp.Presets, env)
+	m := picker.NewModelFromDaemon(cfg, ctl, st, name, root, resp.Sessions, resp.Presets, env, resp.StickyLabel)
 	opts, _, err := picker.TeaOpts()
 	if err != nil {
 		return err
@@ -251,33 +251,34 @@ func freezeCLI(cfg *config.Config, name string) error {
 	if conn, err := net.DialTimeout("unix", daemonSocket(), 50*time.Millisecond); err == nil {
 		defer conn.Close()
 		enc, dec := json.NewEncoder(conn), json.NewDecoder(conn)
-		enc.Encode(daemon.Request{Cmd: "list"})
-		var listResp daemon.Response
-		if err := decodeWithTimeout(dec, &listResp); err == nil && listResp.OK {
+		if name == "" {
+			// current session from tmux directly
+			ctl, _ := tmux.New()
+			name = ctl.CurrentSession(context.Background())
 			if name == "" {
-				if listResp.CtxSess != "" {
-					name = listResp.CtxSess
-				} else if len(listResp.Sessions) > 0 {
-					items := make([]string, 0, len(listResp.Sessions))
-					for _, s := range listResp.Sessions {
-						items = append(items, s.Name)
-					}
+				live, _ := ctl.ListLive(context.Background())
+				items := make([]string, 0, len(live))
+				for _, s := range live {
+					items = append(items, s.Name)
+				}
+				if len(items) > 0 {
+					var err error
 					name, err = picker.Pick(items)
 					if err != nil || name == "" {
 						return errCancel
 					}
 				}
 			}
-			if name != "" {
-				enc.Encode(daemon.Request{Cmd: "freeze", Name: name})
-				var fr daemon.Response
-				decodeWithTimeout(dec, &fr)
-				if fr.OK {
-					fmt.Printf("froze %s\n", name)
-					return nil
-				}
-				return fmt.Errorf("freeze via daemon: %s", fr.Error)
+		}
+		if name != "" {
+			enc.Encode(daemon.Request{Cmd: "freeze", Name: name})
+			var fr daemon.Response
+			decodeWithTimeout(dec, &fr)
+			if fr.OK {
+				fmt.Printf("froze %s\n", name)
+				return nil
 			}
+			return fmt.Errorf("freeze via daemon: %s", fr.Error)
 		}
 	}
 

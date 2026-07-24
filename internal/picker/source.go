@@ -3,6 +3,7 @@ package picker
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -106,6 +107,9 @@ type tmuxSource struct {
 func (s *tmuxSource) Snapshot() []Item {
 	out := make([]Item, 0, len(s.live))
 	for _, ls := range s.live {
+		if strings.HasPrefix(ls.Name, ".") {
+			continue
+		}
 		rec := ls.LastAttached
 		if ls.Activity > rec {
 			rec = ls.Activity

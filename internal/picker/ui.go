@@ -95,7 +95,7 @@ type model struct {
 	tmpl       string
 	createName string
 	createCwd  string
-	ui         viewModel
+	ui viewModel
 }
 
 // ID now method on Item { return it.Name + "\x00" + it.Path }
@@ -160,7 +160,7 @@ func initInput() textinput.Model {
 	return ti
 }
 
-func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer, createName, createCwd string, sessions []tmux.LiveSession, presets []store.PresetMeta, env Context) model {
+func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer, createName, createCwd string, sessions []tmux.LiveSession, presets []store.PresetMeta, env Context, stickyLabel string) model {
 	cache := &sourceCache{
 		zoxSt:    st,
 		zoxMu:    &sync.Mutex{},
@@ -181,7 +181,7 @@ func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer,
 		ctl:        ctl,
 		store:      st,
 		cfg:        cfg,
-		tmpl:       template.StickyLabel(st),
+		tmpl:       stickyLabel,
 		env:        env,
 		createName: createName,
 		createCwd:  createCwd,
@@ -192,9 +192,13 @@ func NewModelFromDaemon(cfg *config.Config, ctl tmux.Connector, st store.Storer,
 			started:    time.Now(),
 		},
 	}
+	if stickyLabel == "" {
+		m.tmpl = template.StickyLabel(st)
+	}
 	m.refilter()
 	return m
 }
+
 
 func NewModel(cfg *config.Config, ctl tmux.Connector, store store.Storer, createName, createCwd string) model {
 	cache := &sourceCache{
@@ -281,10 +285,7 @@ func (m *model) totalCount() int {
 }
 
 func (m model) Init() tea.Cmd {
-	var cmds []tea.Cmd
-	cmds = append(cmds, textinput.Blink)
-	cmds = append(cmds, refreshCmds(m.sources)...)
-	return tea.Batch(cmds...)
+	return tea.Batch(append([]tea.Cmd{textinput.Blink}, refreshCmds(m.sources)...)...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
